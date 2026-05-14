@@ -13,6 +13,9 @@ enum Strings {
         add("window.scene",         "Hoistway Synoptic",                   "Hoistway Synoptic")
         add("window.dcl",           "DCL Terminal",                        "DCL Terminal")
 
+        add("credits.title",        "CREDITS",                             "CREDITS")
+        add("credits.dismiss",      "Click or press ESC to close",         "Cliquez ou appuyez ESC pour fermer")
+
         add("banner.title",         "GROUP DISPATCHER",                    "RÉGULATEUR DE GROUPE")
         add("banner.subtitle",      "VSI OpenVMS V9.2-3   TERMINAL VT320", "VSI OpenVMS V9.2-3   TERMINAL VT320")
         add("banner.copyright",     "(C) 2026  LPD — LEVAGE & PORTES DAUPHINÉ",  "(C) 2026  LPD — LEVAGE & PORTES DAUPHINÉ")

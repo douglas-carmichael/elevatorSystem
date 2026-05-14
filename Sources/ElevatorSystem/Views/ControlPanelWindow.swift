@@ -10,6 +10,7 @@ struct ControlPanelWindow: View {
 
     @State private var focusedCabId: UUID?
     @State private var showHelp: Bool = false
+    @State private var showCredits: Bool = false
 
     var body: some View {
         ZStack {
@@ -29,11 +30,15 @@ struct ControlPanelWindow: View {
                     }
                     .padding(.top, 8)
                 }
-                FooterBar()
+                FooterBar(showCredits: $showCredits)
             }
             .padding(20)
             if showHelp {
                 HelpOverlay(onDismiss: { showHelp = false })
+                    .transition(.opacity)
+            }
+            if showCredits {
+                CreditsOverlay(onDismiss: { showCredits = false })
                     .transition(.opacity)
             }
         }
@@ -50,6 +55,7 @@ struct ControlPanelWindow: View {
 
         if ev.keyCode == KeyCode.escape {
             if showHelp { showHelp = false; return nil }
+            if showCredits { showCredits = false; return nil }
             return ev
         }
         if ev.keyCode == KeyCode.f1 {
@@ -362,6 +368,7 @@ private struct ModeControls: View {
 }
 
 private struct FooterBar: View {
+    @Binding var showCredits: Bool
     @EnvironmentObject var language: AppLanguage
     @Environment(\.openWindow) private var openWindow
 
@@ -371,6 +378,9 @@ private struct FooterBar: View {
                 .font(RetroTheme.monoSm)
                 .foregroundColor(RetroTheme.amberDim)
             Spacer()
+            RetroButton(language.t("credits.title")) {
+                showCredits = true
+            }
             RetroButton(language.t("window.dcl")) {
                 openWindow(id: "dcl")
             }
@@ -435,6 +445,77 @@ private struct HelpOverlay: View {
             Text(desc)
                 .font(RetroTheme.mono)
                 .foregroundColor(RetroTheme.amber)
+        }
+    }
+}
+
+private struct CreditsOverlay: View {
+    let onDismiss: () -> Void
+    @EnvironmentObject var language: AppLanguage
+
+    var body: some View {
+        ZStack {
+            RetroTheme.bg.opacity(0.85).ignoresSafeArea()
+            BoxPanel(title: language.t("credits.title"), accent: RetroTheme.cyan) {
+                VStack(spacing: 20) {
+                    VStack(spacing: 4) {
+                        Text("╔══════════════════════════════════════╗")
+                            .font(RetroTheme.mono)
+                            .foregroundColor(RetroTheme.cyan)
+                        Text("ElevatorSystem")
+                            .font(RetroTheme.monoLg)
+                            .foregroundColor(RetroTheme.amberBright)
+                            .retroGlow()
+                        Text("╚══════════════════════════════════════╝")
+                            .font(RetroTheme.mono)
+                            .foregroundColor(RetroTheme.cyan)
+                    }
+
+                    HRule(RetroTheme.amberDim)
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        creditBlock(
+                            role: "ORIGINAL CONCEPT & DESIGN",
+                            name: "Amaury Crocquefer",
+                            email: "amaury@crocque.fr",
+                            url: "github.com/lapatatedouce59/elevatorSystem"
+                        )
+                        creditBlock(
+                            role: "macOS / SwiftUI PORT",
+                            name: "Douglas Carmichael",
+                            email: "dcarmich@dcarmichael.net",
+                            url: "github.com/douglas-carmichael/elevatorSystem"
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HRule(RetroTheme.amberDim)
+
+                    Text(language.t("credits.dismiss"))
+                        .font(RetroTheme.monoSm)
+                        .foregroundColor(RetroTheme.amberDim)
+                }
+                .frame(width: 460)
+            }
+            .onTapGesture { onDismiss() }
+        }
+    }
+
+    private func creditBlock(role: String, name: String, email: String, url: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(role)
+                .font(RetroTheme.monoSm)
+                .foregroundColor(RetroTheme.cyan)
+            Text(name)
+                .font(RetroTheme.monoLg)
+                .foregroundColor(RetroTheme.amberBright)
+                .retroGlow()
+            Text(email)
+                .font(RetroTheme.mono)
+                .foregroundColor(RetroTheme.amber)
+            Text(url)
+                .font(RetroTheme.monoSm)
+                .foregroundColor(RetroTheme.amberDim)
         }
     }
 }

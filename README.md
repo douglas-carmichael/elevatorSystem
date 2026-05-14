@@ -126,6 +126,17 @@ service Bonjour sont definis dans `project.yml` sous
 
 ---
 
+## Credits
+
+| | |
+|---|---|
+| **Original concept & design** | Amaury Crocquefer — amaury@crocque.fr |
+| | https://github.com/lapatatedouce59/elevatorSystem |
+| **macOS / SwiftUI port** | Douglas Carmichael — dcarmich@dcarmichael.net |
+| | https://github.com/douglas-carmichael/elevatorSystem |
+
+---
+
 ## License / Licence
 
 Private repository. / Depot prive.
