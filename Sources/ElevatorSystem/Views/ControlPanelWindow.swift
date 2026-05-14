@@ -458,30 +458,26 @@ private struct CreditsOverlay: View {
             RetroTheme.bg.opacity(0.85).ignoresSafeArea()
             BoxPanel(title: language.t("credits.title"), accent: RetroTheme.cyan) {
                 VStack(spacing: 20) {
-                    VStack(spacing: 4) {
-                        Text("╔══════════════════════════════════════╗")
-                            .font(RetroTheme.mono)
-                            .foregroundColor(RetroTheme.cyan)
+                    VStack(spacing: 6) {
+                        HRule(RetroTheme.cyan)
                         Text("ElevatorSystem")
-                            .font(RetroTheme.monoLg)
+                            .font(RetroTheme.monoXl)
                             .foregroundColor(RetroTheme.amberBright)
                             .retroGlow()
-                        Text("╚══════════════════════════════════════╝")
-                            .font(RetroTheme.mono)
-                            .foregroundColor(RetroTheme.cyan)
+                        HRule(RetroTheme.cyan)
                     }
 
                     HRule(RetroTheme.amberDim)
 
                     VStack(alignment: .leading, spacing: 14) {
                         creditBlock(
-                            role: "ORIGINAL CONCEPT & DESIGN",
+                            role: language.t("credits.role.original"),
                             name: "Amaury Crocquefer",
                             email: "amaury@crocque.fr",
                             url: "github.com/lapatatedouce59/elevatorSystem"
                         )
                         creditBlock(
-                            role: "macOS / SwiftUI PORT",
+                            role: language.t("credits.role.macos"),
                             name: "Douglas Carmichael",
                             email: "dcarmich@dcarmichael.net",
                             url: "github.com/douglas-carmichael/elevatorSystem"

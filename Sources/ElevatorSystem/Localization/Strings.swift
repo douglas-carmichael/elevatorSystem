@@ -10,11 +10,13 @@ enum Strings {
         }
 
         add("window.control",       "Group Dispatcher",                    "Group Dispatcher")
-        add("window.scene",         "Hoistway Synoptic",                   "Hoistway Synoptic")
-        add("window.dcl",           "DCL Terminal",                        "DCL Terminal")
+        add("window.scene",         "Hoistway Synoptic",                   "Synoptique de gaine")
+        add("window.dcl",           "DCL Terminal",                        "Terminal DCL")
 
-        add("credits.title",        "CREDITS",                             "CREDITS")
+        add("credits.title",        "CREDITS",                             "CRÉDITS")
         add("credits.dismiss",      "Click or press ESC to close",         "Cliquez ou appuyez ESC pour fermer")
+        add("credits.role.original","ORIGINAL CONCEPT & DESIGN",           "CONCEPT & DESIGN ORIGINAL")
+        add("credits.role.macos",   "macOS / SwiftUI PORT",                "PORTAGE macOS / SwiftUI")
 
         add("banner.title",         "GROUP DISPATCHER",                    "RÉGULATEUR DE GROUPE")
         add("banner.subtitle",      "VSI OpenVMS V9.2-3   TERMINAL VT320", "VSI OpenVMS V9.2-3   TERMINAL VT320")
