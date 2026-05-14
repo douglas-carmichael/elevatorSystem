@@ -1399,14 +1399,15 @@ final class DCLEngine: ObservableObject {
         let width = 78
         let now = Date()
 
-        func line(_ inner: String) -> String {
-            return "  " + inner + "\n"
+        func boxLine(_ inner: String) -> String {
+            let pad = max(0, width - 2 - inner.count)
+            return "│" + inner + String(repeating: " ", count: pad) + "│\n"
         }
-        func sep() -> String {
-            return "  " + String(repeating: "-", count: width - 4) + "\n"
+        func sep(left: String, right: String) -> String {
+            return left + String(repeating: "─", count: width - 2) + right + "\n"
         }
         func centered(_ s: String) -> String {
-            let pad = max(0, (width - s.count) / 2)
+            let pad = max(0, (width - 2 - s.count) / 2)
             return String(repeating: " ", count: pad) + s
         }
 
@@ -1421,15 +1422,17 @@ final class DCLEngine: ObservableObject {
         let abortHint   = tr("diag.abort.hint")
         let exitHint    = tr("diag.exit.hint")
 
+        let innerWidth = width - 2
+
         var s = ""
-        s += "\n"
-        s += centered(suiteTitle) + "\n"
-        s += centered("\(name)    \(operatorLbl): \(username)") + "\n"
-        s += centered("\(startedLbl): \(stamp(testStartedAt))") + "\n"
-        s += sep()
-        s += "\n"
-        s += line(header)
-        s += "\n"
+        s += sep(left: "┌", right: "┐")
+        s += boxLine(centered(suiteTitle))
+        s += boxLine(centered("\(name)    \(operatorLbl): \(username)"))
+        s += boxLine(centered("\(startedLbl): \(stamp(testStartedAt))"))
+        s += sep(left: "├", right: "┤")
+        s += boxLine("")
+        s += boxLine("  " + header)
+        s += boxLine("")
 
         for (i, step) in testSteps.enumerated() {
             let label = step.label.padding(toLength: 42, withPad: " ", startingAt: 0)
@@ -1445,11 +1448,11 @@ final class DCLEngine: ObservableObject {
                 reading = "".padding(toLength: 14, withPad: " ", startingAt: 0)
                 status  = queuedWord
             }
-            s += line(label + reading + " " + status)
+            s += boxLine("  " + label + reading + " " + status)
         }
 
-        s += "\n"
-        s += sep()
+        s += boxLine("")
+        s += sep(left: "├", right: "┤")
 
         let elapsed = uptimeString(from: testStartedAt, to: now)
         let passWord = tr("diag.status.pass")
@@ -1460,15 +1463,16 @@ final class DCLEngine: ObservableObject {
             }
             let resultLbl = allGood ? tr("diag.allpass") : tr("diag.seeresults")
             let completeLbl = String(format: tr("diag.complete"), testResults.count, testSteps.count)
-            s += line("\(completeLbl)  \(elapsedLbl) \(elapsed)  \(resultLbl)")
-            let hintPad = max(0, width - 4 - exitHint.count)
-            s += "  " + String(repeating: " ", count: hintPad) + exitHint + "\n"
+            s += boxLine("  \(completeLbl)  \(elapsedLbl) \(elapsed)  \(resultLbl)")
+            let hintPad = max(0, innerWidth - exitHint.count)
+            s += boxLine(String(repeating: " ", count: hintPad) + exitHint)
         } else {
             let stepLbl = String(format: tr("diag.step.of"), testCurrent + 1, testSteps.count)
-            s += line("\(stepLbl)  \(elapsedLbl) \(elapsed)")
-            let hintPad = max(0, width - 4 - abortHint.count)
-            s += "  " + String(repeating: " ", count: hintPad) + abortHint + "\n"
+            s += boxLine("  \(stepLbl)  \(elapsedLbl) \(elapsed)")
+            let hintPad = max(0, innerWidth - abortHint.count)
+            s += boxLine(String(repeating: " ", count: hintPad) + abortHint)
         }
+        s += sep(left: "└", right: "┘")
         liveDisplay = s
     }
 

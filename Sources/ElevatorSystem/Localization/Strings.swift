@@ -135,14 +135,14 @@ enum Strings {
         // Per-step labels (formatted with cab label or floor number).
         add("diag.step.brake.cab",  "Cab %@ -- brake hold force",          "Cabine %@ -- force de freinage")
         add("diag.step.brake.fw",   "Cross-check brake controller firmware",
-                                    "Vérif. firmware controleur frein")
-        add("diag.step.door.cycle", "Cab %@ -- doors open/close cycle",    "Cabine %@ -- cycle ouv./ferm. portes")
+                                    "Vérification du firmware controleur frein")
+        add("diag.step.door.cycle", "Cab %@ -- doors open/close cycle",    "Cabine %@ -- cycle ouvert./fermet. portes")
         add("diag.step.door.obst",  "Cab %@ -- obstruction sensor",        "Cabine %@ -- capteur d'obstruction")
         add("diag.step.weight.zero","Cab %@ -- load cell zero",            "Cabine %@ -- zéro capteur de charge")
         add("diag.step.weight.span","Cab %@ -- load cell span",            "Cabine %@ -- gain capteur de charge")
         add("diag.step.weight.write","Write CAB$DATA:[CALIB]CAB.DAT",      "Écriture vers CAB$DATA:[CALIB]CAB.DAT")
         add("diag.step.lamp.floor", "Floor %@ -- UP / DOWN call lamps",    "Étage %@ -- lampes d'appel HAUT / BAS")
-        add("diag.step.lamp.fw",    "Verify lamp driver firmware",         "Vérif. firmware controleur lampes")
+        add("diag.step.lamp.fw",    "Verify lamp driver firmware",         "Vérification du firmware controleur lampes")
 
         return t
     }
