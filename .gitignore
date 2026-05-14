@@ -1,0 +1,13 @@
+## XcodeGen output
+ElevatorSystem.xcodeproj/
+
+## Xcode user state
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+.build/
+*.xcworkspace/xcuserdata/
+
+## macOS
+.DS_Store

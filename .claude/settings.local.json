@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"/Users/dcarmich/Documents/DC Utilities/Amaury_Projects/elevatorSystem/Resources/Fonts\")",
+      "Bash(curl -fsSL -o VT323-Regular.ttf \"https://github.com/google/fonts/raw/main/ofl/vt323/VT323-Regular.ttf\")",
+      "Bash(curl -fsSL -o OFL.txt \"https://github.com/google/fonts/raw/main/ofl/vt323/OFL.txt\")",
+      "Read(//Users/dcarmich/Library/Developer/Xcode/DerivedData/ElevatorSystem-crqtkfsoigdghsdmbubkhjnadigj/Build/Products/Debug/ElevatorSystem.app/Contents/Resources/**)",
+      "Bash(/usr/libexec/PlistBuddy -c 'Print :ATSApplicationFontsPath' /Users/dcarmich/Library/Developer/Xcode/DerivedData/ElevatorSystem-crqtkfsoigdghsdmbubkhjnadigj/Build/Products/Debug/ElevatorSystem.app/Contents/Info.plist)",
+      "Bash(osascript -e 'tell application \"ElevatorSystem\" to quit')",
+      "Bash(open \"/Users/dcarmich/Library/Developer/Xcode/DerivedData/ElevatorSystem-crqtkfsoigdghsdmbubkhjnadigj/Build/Products/Debug/ElevatorSystem.app\")",
+      "Bash(xcodebuild -project ElevatorSystem.xcodeproj -scheme ElevatorSystem -configuration Debug -destination 'platform=macOS' build)"
+    ]
+  }
+}
