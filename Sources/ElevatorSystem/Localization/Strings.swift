@@ -9,9 +9,9 @@ enum Strings {
             t[key] = [.en: en, .fr: fr]
         }
 
-        add("window.control",       "Control Panel",                       "Tableau de commande")
-        add("window.scene",         "Hoistway Synoptic",                   "Synoptique de gaine")
-        add("window.dcl",           "DCL Terminal",                        "Terminal DCL")
+        add("window.control",       "Group Dispatcher",                    "Group Dispatcher")
+        add("window.scene",         "Hoistway Synoptic",                   "Hoistway Synoptic")
+        add("window.dcl",           "DCL Terminal",                        "DCL Terminal")
 
         add("banner.title",         "GROUP DISPATCHER",                    "RÉGULATEUR DE GROUPE")
         add("banner.subtitle",      "VSI OpenVMS V9.2-3   TERMINAL VT320", "VSI OpenVMS V9.2-3   TERMINAL VT320")

@@ -23,7 +23,7 @@ struct ElevatorSystemApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Control Panel", id: "control") {
+        WindowGroup("Group Dispatcher", id: "control") {
             ControlPanelWindow()
                 .environmentObject(language)
                 .environmentObject(world)
@@ -36,7 +36,7 @@ struct ElevatorSystemApp: App {
             CommandGroup(replacing: .newItem) {}
         }
 
-        WindowGroup("Elevator View", id: "scene") {
+        WindowGroup("Hoistway Synoptic", id: "scene") {
             ElevatorSceneWindow()
                 .environmentObject(language)
                 .environmentObject(world)
