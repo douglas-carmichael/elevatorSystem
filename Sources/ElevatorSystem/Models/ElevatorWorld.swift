@@ -126,6 +126,16 @@ final class ElevatorWorld: ObservableObject {
         elev.ownerPeerId == localPeerId
     }
 
+    var remotePeerIds: [String] {
+        Array(Set(elevators.compactMap { $0.ownerPeerId != localPeerId ? $0.ownerPeerId : nil })).sorted()
+    }
+
+    func peerLetter(for peerId: String) -> String {
+        let remoteIds = remotePeerIds
+        let index = remoteIds.firstIndex(of: peerId) ?? 0
+        return String(UnicodeScalar(UInt32(UnicodeScalar("A").value) + UInt32(index))!)
+    }
+
     func displayLabel(for elev: Elevator) -> String {
         if elev.ownerPeerId == localPeerId {
             return "L\(elev.label)"

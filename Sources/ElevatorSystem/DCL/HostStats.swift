@@ -165,6 +165,56 @@ final class HostStats {
         return Int(length) / MemoryLayout<kinfo_proc>.stride
     }
 
+    // MARK: -- Disk volumes
+
+    struct VolumeInfo {
+        let name: String
+        let totalBytes: Int
+        let freeBytes: Int
+        let isBoot: Bool
+
+        var vmsLabel: String {
+            let clean = name.uppercased()
+                .replacingOccurrences(of: " ", with: "_")
+                .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+            return String(clean.prefix(12))
+        }
+
+        var freeBlocks: Int { freeBytes / 512 }
+        var totalBlocks: Int { totalBytes / 512 }
+    }
+
+    func mountedVolumes() -> [VolumeInfo] {
+        let fm = FileManager.default
+        let keys: Set<URLResourceKey> = [
+            .volumeNameKey,
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityKey,
+            .volumeIsRootFileSystemKey
+        ]
+        guard let urls = fm.mountedVolumeURLs(
+            includingResourceValuesForKeys: Array(keys),
+            options: [.skipHiddenVolumes]
+        ) else { return [] }
+
+        var volumes: [VolumeInfo] = []
+        for url in urls {
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  let name = values.volumeName,
+                  let total = values.volumeTotalCapacity,
+                  let free = values.volumeAvailableCapacity else { continue }
+            let boot = values.volumeIsRootFileSystem ?? false
+            volumes.append(VolumeInfo(name: name, totalBytes: total,
+                                      freeBytes: free, isBoot: boot))
+        }
+
+        volumes.sort { a, b in
+            if a.isBoot != b.isBoot { return a.isBoot }
+            return a.name < b.name
+        }
+        return volumes
+    }
+
     // MARK: -- helpers
 
     private static func readSysctlString(_ name: String) -> String? {

@@ -451,15 +451,24 @@ final class DCLEngine: ObservableObject {
     }
 
     private func showDevices() -> String {
-        var s = "\nDevice                  Device           Error    Volume         Free  Trans Mnt\n"
-        s += " Name                   Status           Count     Label         Blocks Count Cnt\n"
-        s += "CAB$DKA0:               Mounted              0  ELEV_SYS         18742    44   1\n"
-        s += "CAB$DKA1:               Mounted              0  ELEV_DATA        92188    12   1\n"
-        s += "DOORS$DKB0:             Mounted              2  ELEV_DOORS        4928     8   1\n"
-        s += "EVENTLOG$DKB1:          Mounted              0  ELEV_LOGS        24441     1   1\n"
-        s += "NET$EBA0:               Online               0      (none)            -     -   -\n"
-        s += "BONJOUR$EBA1:           Online               0      (none)            -     -   -\n"
-        s += "\(terminalName)             Online               0      (none)            -     -   -\n"
+        var s = "\nDevice                  Device           Error    Volume                 Free  Trans Mnt\n"
+        s += " Name                   Status           Count     Label                Blocks Count Cnt\n"
+
+        let volumes = host.mountedVolumes()
+        for (i, vol) in volumes.enumerated() {
+            let dev = "DKA\(i):".padding(toLength: 24, withPad: " ", startingAt: 0)
+            let label = vol.vmsLabel.padding(toLength: 14, withPad: " ", startingAt: 0)
+            let free = String(vol.freeBlocks)
+            let freePad = String(repeating: " ", count: max(0, 12 - free.count)) + free
+            let trans = i == 0 ? 44 : max(1, 12 - (i - 1) * 3)
+            s += "\(dev)Mounted              0  \(label) \(freePad) \(String(format: "%4d", trans))   1\n"
+        }
+
+        let none = "(none)".padding(toLength: 14, withPad: " ", startingAt: 0)
+        s += "NET$EBA0:               Online               0  \(none)            -     -   -\n"
+        s += "BONJOUR$EBA1:           Online               0  \(none)            -     -   -\n"
+        let term = terminalName.padding(toLength: 24, withPad: " ", startingAt: 0)
+        s += "\(term)Online               0  \(none)            -     -   -\n"
         return s
     }
 
@@ -736,19 +745,21 @@ final class DCLEngine: ObservableObject {
     }
 
     private func showCluster() -> String {
+        let w = 33
+        let bar = String(repeating: "─", count: w - 2)
         var s = "\n              View of Cluster from system ID 1025  node: \(nodeName)\n"
-        s += "+-----------------------------+\n"
-        s += "|        SYSTEMS              |\n"
-        s += "|   NODE     SOFTWARE     STATUS\n"
-        s += "+-----------------------------+\n"
-        s += "|  \(nodeName.padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())   MEMBER\n"
+        s += "┌\(bar)┐\n"
+        s += "│        SYSTEMS               │\n"
+        s += "│   NODE      SOFTWARE   STATUS │\n"
+        s += "├\(bar)┤\n"
+        s += "│  \(nodeName.padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())  MEMBER │\n"
         if let peers = network?.peers {
             for peer in peers {
                 let nm = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8)
-                s += "|  \(String(nm).padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())   MEMBER\n"
+                s += "│  \(String(nm).padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())  MEMBER │\n"
             }
         }
-        s += "+-----------------------------+\n"
+        s += "└\(bar)┘\n"
         return s
     }
 
