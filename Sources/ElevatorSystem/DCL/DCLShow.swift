@@ -1,0 +1,454 @@
+import Foundation
+
+// SHOW family of commands -- one entry per `SHOW <keyword>` subcommand.
+// All methods are extensions of the main DCLEngine class so they share
+// state (`world`, `network`, `host`, `username` ...) directly.
+extension DCLEngine {
+    func showCmd(_ cmd: Parsed) -> String {
+        guard let what = cmd.positional.first else {
+            return missQual("SHOW")
+        }
+        switch true {
+        case matches(what, "PROCESS",     min: 4): return showProcess(cmd)
+        case matches(what, "SYSTEM",      min: 3): return showSystem()
+        case matches(what, "USERS",       min: 4): return showUsers()
+        case matches(what, "DEVICES",     min: 3): return showDevices()
+        case matches(what, "MEMORY",      min: 3): return showMemory()
+        case matches(what, "TIME"):                return showTime()
+        case matches(what, "NETWORK",     min: 3): return showNetwork()
+        case matches(what, "QUEUE",       min: 4): return showQueue()
+        case matches(what, "LOGICAL",     min: 3): return showLogical(cmd)
+        case matches(what, "SYMBOL",      min: 3): return showSymbol(cmd)
+        case matches(what, "ERROR",       min: 3): return showError()
+        case matches(what, "STATUS",      min: 4): return showStatus()
+        case matches(what, "LICENSE",     min: 3): return showLicense()
+        case matches(what, "CPU"):                 return showCPU()
+        case matches(what, "DEFAULT",     min: 3): return showDefault()
+        case matches(what, "QUOTA",       min: 4): return showQuota()
+        case matches(what, "PROTECTION",  min: 4): return showProtection()
+        case matches(what, "TERMINAL",    min: 4): return showTerminal()
+        case matches(what, "WORKING_SET", min: 4): return showWorkingSet()
+        case matches(what, "VERSION",     min: 3): return showVersion()
+        case matches(what, "RMS_DEFAULT", min: 3): return showRMS()
+        case matches(what, "INTRUSION",   min: 3): return showIntrusion()
+        case matches(what, "CLUSTER",     min: 3): return showCluster()
+        case matches(what, "CONNECTIONS", min: 4): return showConnections()
+        case matches(what, "AUDIT",       min: 3): return showAudit()
+        default:
+            fail("DCL-W-IVKEYW", "%X00038088")
+            return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
+        }
+    }
+
+    func showProcess(_ cmd: Parsed) -> String {
+        let now = Date()
+        let upS = Int(host.uptime())
+        var s = "\n\(stamp(now))   User: \(username.padding(toLength: 12, withPad: " ", startingAt: 0))   Process ID:   \(pid)\n"
+        s += "                          Node: \(nodeName.padding(toLength: 8, withPad: " ", startingAt: 0))       Process name: \"DCL_\(username)\"\n\n"
+        s += "Terminal:            \(terminalName)\n"
+        s += "User Identifier:     [ELEVATOR,\(username)]\n"
+        s += "Base priority:       4\n"
+        s += "Default file spec:   \(defaultDevice)\(defaultDirectory)\n"
+        s += "Devices allocated:   none\n\n"
+        s += "Process Quotas:\n"
+        s += " Account name:                  CONTROL_ROOM\n"
+        s += " CPU limit:                     Infinite       Direct I/O limit:      150\n"
+        s += " Buffered I/O byte count quota: 65536          Buffered I/O limit:    150\n"
+        s += " Timer queue entry quota:       20             Open file quota:       100\n"
+        s += " Paging file quota:             50000          Subprocess quota:      8\n"
+        s += " Default page fault cluster:    64             AST quota:             250\n"
+        s += " Enqueue quota:                 200            Shared file limit:     0\n"
+        s += " Max detached processes:        0              Max active jobs:       0\n\n"
+        s += "Accounting information:\n"
+        s += String(format: " Buffered I/O count:            %-12d  Peak working set size:    1648\n", upS / 4)
+        s += String(format: " Direct I/O count:              %-12d  Peak page file size:     20384\n", upS / 8)
+        s += String(format: " Page faults:                   %-12d  Mounted volumes:             0\n", upS / 2)
+        s += " Images activated:              3\n"
+        s += String(format: " Elapsed CPU time:              0 00:%02d:%02d.%02d\n",
+                    (upS / 60) % 60, upS % 60, (upS * 7) % 100)
+        s += String(format: " Connect time:                  %@\n", uptimeString(from: bootTime, to: now))
+        if cmd.hasQualifier("ALL", min: 1) {
+            s += "\nProcess rights:\n"
+            s += "  INTERACTIVE\n"
+            s += "  LOCAL\n"
+            s += "  ELEVATOR_OPERATOR\n"
+            s += "System rights:\n"
+            s += "  SYS$NODE_\(nodeName)\n"
+        }
+        return s
+    }
+
+    func showSystem() -> String {
+        let now = Date()
+        let uptime = uptimeString(from: bootTime, to: now)
+        let loads = host.loadAverages()
+        let procCount = host.processCount()
+        var s = "\n\(osTitle) \(osVersion) on node \(nodeName)  \(stamp(now))  Uptime  \(uptime)\n"
+        s += String(format: "  Load average: %.2f  %.2f  %.2f    Active processes: %d\n",
+                    loads.one, loads.five, loads.fifteen, procCount)
+        s += "  Pid    Process Name      State  Pri      I/O       CPU       Page flts Pages\n"
+        s += sysLine("00000401", "SWAPPER",          "HIB",   16, 0,     "0 00:00:01.21",         0,     0)
+        s += sysLine("00000402", "NULL",             "COM",    0, 0,     "3 00:00:00.00",         0,     0)
+        s += sysLine("00000403", "ELEVATOR_CTL",     "LEF",    8, 4823,  "0 00:01:32.14",      1842,  3104)
+        s += sysLine("00000404", "DISPATCH",         "LEF",    7, 2204,  "0 00:00:48.21",       412,  1480)
+        s += sysLine("00000405", "HALL_CALL_MGR",    "LEF",    6, 1187,  "0 00:00:24.04",       284,   720)
+        s += sysLine("00000406", "DOOR_SVC",         "LEF",    6,  942,  "0 00:00:18.42",       212,   612)
+        s += sysLine("00000407", "BRAKE_MON",        "HIB",    7,   84,  "0 00:00:02.18",        48,   180)
+        s += sysLine("00000408", "WEIGHT_MON",       "HIB",    6,   62,  "0 00:00:01.42",        38,   148)
+        s += sysLine("00000409", "LOGGER",           "LEF",    4,  208,  "0 00:00:04.81",        72,   246)
+
+        let cabs = world?.elevators ?? []
+        for (i, cab) in cabs.prefix(6).enumerated() {
+            let cabPid = String(format: "%08X", 0x040A + i)
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            let name = String(format: "CAB_%@_TASK", dLabel).padding(toLength: 16, withPad: " ", startingAt: 0)
+            let state = cab.doors == .open ? "LEF" : (cab.direction == .idle ? "HIB" : "COM")
+            let io = 800 + (i * 47)
+            let cpu = String(format: "0 00:00:%02d.%02d", 12 + i, (i * 17 + 9) % 100)
+            let faults = 320 + (i * 18)
+            let pages = 610 + i * 8
+            s += "\(cabPid) \(name) \(state)     6   \(String(format: "%6d", io))   \(cpu)       \(String(format: "%3d", faults))   \(String(format: "%4d", pages))\n"
+        }
+        s += sysLine("00000414", "COMM_NETSRV",      "LEF",    6, 612,   "0 00:00:08.71",       412, 1024)
+        s += sysLine("00000415", "BONJOUR_PUBSRV",   "LEF",    6, 144,   "0 00:00:01.95",       108,  384)
+        s += sysLine("00000416", "MAINT_AGENT",      "HIB",    4,  72,   "0 00:00:00.94",        36,  158)
+        s += "\(pid) DCL_\(username.padding(toLength: 12, withPad: " ", startingAt: 0).prefix(12)) CUR     4       21   0 00:00:00.18        24   148\n"
+        return s
+    }
+
+    private func sysLine(_ pid: String, _ name: String, _ state: String, _ pri: Int, _ io: Int, _ cpu: String, _ faults: Int, _ pages: Int) -> String {
+        let padName = name.padding(toLength: 16, withPad: " ", startingAt: 0)
+        return "\(pid) \(padName) \(state)    \(String(format: "%2d", pri))   \(String(format: "%6d", io))   \(cpu)       \(String(format: "%4d", faults))  \(String(format: "%4d", pages))\n"
+    }
+
+    func showUsers() -> String {
+        var s = "\n       OpenVMS User Processes at \(stamp(Date()))\n"
+        s += "       Total number of users = \(1 + (network?.peers.count ?? 0)), number of processes = \((world?.elevators.count ?? 0) + 4)\n\n"
+        s += "  Username     Process Name        PID    Terminal\n"
+        s += "  \(username.padding(toLength: 12, withPad: " ", startingAt: 0)) DCL_\(username.prefix(12).padding(toLength: 16, withPad: " ", startingAt: 0)) \(pid) \(terminalName)\n"
+        for (i, peer) in (network?.peers ?? []).enumerated() {
+            let upper = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
+            let uname = String(upper.prefix(12)).padding(toLength: 12, withPad: " ", startingAt: 0)
+            let pname = ("DCL_" + upper.prefix(12)).padding(toLength: 16, withPad: " ", startingAt: 0)
+            let ppid = String(format: "%08X", 0x0500 + i)
+            s += "  \(uname) \(pname) \(ppid) TT$NTA00\(i + 1):\n"
+        }
+        return s
+    }
+
+    func showDevices() -> String {
+        var s = "\nDevice                  Device           Error    Volume                 Free  Trans Mnt\n"
+        s += " Name                   Status           Count     Label                Blocks Count Cnt\n"
+
+        let volumes = host.mountedVolumes()
+        for (i, vol) in volumes.enumerated() {
+            let dev = "DKA\(i):".padding(toLength: 24, withPad: " ", startingAt: 0)
+            let label = vol.vmsLabel.padding(toLength: 14, withPad: " ", startingAt: 0)
+            let free = String(vol.freeBlocks)
+            let freePad = String(repeating: " ", count: max(0, 12 - free.count)) + free
+            let trans = i == 0 ? 44 : max(1, 12 - (i - 1) * 3)
+            s += "\(dev)Mounted              0  \(label) \(freePad) \(String(format: "%4d", trans))   1\n"
+        }
+
+        let none = "(none)".padding(toLength: 14, withPad: " ", startingAt: 0)
+        s += "NET$EBA0:               Online               0  \(none)            -     -   -\n"
+        s += "BONJOUR$EBA1:           Online               0  \(none)            -     -   -\n"
+        let term = terminalName.padding(toLength: 24, withPad: " ", startingAt: 0)
+        s += "\(term)Online               0  \(none)            -     -   -\n"
+        return s
+    }
+
+    func showMemory() -> String {
+        let vm = host.vmStats()
+        let totalMb = Double(host.physicalMemoryBytes) / (1024.0 * 1024.0)
+        let procCount = host.processCount()
+        let resident = max(1, procCount - 8)
+
+        var s = "\n                System Memory Resources on \(stamp(Date()))\n\n"
+        s += "Physical Memory Usage (pages):     Total       Free      In Use     Modified\n"
+        s += String(format: "  Main Memory (%8.2fMb)      %8llu   %8llu    %8llu     %8llu\n",
+                    totalMb, vm.totalPages, vm.freePages, vm.inUsePages, vm.modifiedPages)
+        s += "\nSlot Usage (slots):                Total       Free   Resident      Swapped\n"
+        s += String(format: "  Process Entry Slots             %4d       %4d       %4d            0\n",
+                    max(procCount + 32, 160), 32, procCount)
+        s += String(format: "  Balance Set Slots               %4d       %4d       %4d            0\n",
+                    max(resident + 18, 140), 18, resident)
+        s += "\nDynamic Memory Usage (bytes):      Total       Free    In Use      Largest\n"
+        s += "  Non-Paged Dynamic Memory        524288      94216    430072        18432\n"
+        s += "  Paged Dynamic Memory            262144      72488    189656        12104\n\n"
+        s += "Paging File Usage (pages):     Free  Reservable      Total\n"
+        s += "  DISK$ELEV_SYS:[SYS0.SYSEXE]PAGEFILE.SYS\n"
+        s += String(format: "                              %8llu    %8llu   %8llu\n",
+                    vm.freePages, vm.freePages + vm.inactivePages, vm.totalPages)
+        return s
+    }
+
+    func showTime() -> String {
+        return "  \(stamp(Date()))\n"
+    }
+
+    func showNetwork() -> String {
+        var s = "\n  Node     State            Active Links   Delay   Cost   Hops  Name\n"
+        s += "  -----    -----            ------------   -----   ----   ----  ----\n"
+        s += "  1.1      LOCAL                       2       0      0      0  \(nodeName)\n"
+        if let peers = network?.peers, !peers.isEmpty {
+            for (i, peer) in peers.enumerated() {
+                let addr = "1.\(2 + i)"
+                let upper = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
+                let nm = String(upper.prefix(6))
+                s += "  \(addr.padding(toLength: 8, withPad: " ", startingAt: 0)) REACHABLE                1       \(2 + i)      1      1  \(nm)\n"
+            }
+        } else {
+            s += "  -        -                        -       -      -      -  (no adjacent nodes)\n"
+        }
+        return s
+    }
+
+    func showQueue() -> String {
+        let cabs = world?.elevators ?? []
+        var s = "\nPending floor calls -- \(stamp(Date()))\n\n"
+        s += "Cab    Owner      Mode   Type  Floor  Direction  Doors    Queue\n"
+        s += "---    -----      ----   ----  -----  ---------  -----    -----\n"
+        for cab in cabs {
+            let owner = (world?.canControl(cab) ?? false) ? "LOCAL" : "REMOTE"
+            let mode  = cab.automatic ? "AUTO" : "MAN."
+            let type  = cab.profile == .freight ? "FRT" : "PAX"
+            let floor = String(format: "%5d", cab.displayFloor)
+            let dir   = (cab.direction == .up ? "UP" :
+                          cab.direction == .down ? "DOWN" : "---").padding(toLength: 9, withPad: " ", startingAt: 0)
+            let doors = String(describing: cab.doors).uppercased().padding(toLength: 8, withPad: " ", startingAt: 0)
+            let queue = cab.queue.isEmpty ? "(empty)" : cab.queue.map(String.init).joined(separator: " > ")
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            s += "\(dLabel.padding(toLength: 6, withPad: " ", startingAt: 0)) \(owner.padding(toLength: 10, withPad: " ", startingAt: 0)) \(mode.padding(toLength: 6, withPad: " ", startingAt: 0)) \(type.padding(toLength: 5, withPad: " ", startingAt: 0)) \(floor)  \(dir)  \(doors) \(queue)\n"
+        }
+        if cabs.isEmpty { s += "  (no cabs registered)\n" }
+        return s
+    }
+
+    func showLogical(_ cmd: Parsed) -> String {
+        let procOnly = cmd.hasQualifier("PROCESS", min: 4)
+        var s = "\n"
+        if !procOnly {
+            s += "(LNM$SYSTEM_TABLE)\n"
+            s += "  \"ELEVATOR$ROOT\"             = \"DISK$ELEV_SYS:[ELEVATOR]\"\n"
+            s += "  \"CAB$DATA\"                  = \"DISK$ELEV_DATA:[CABS]\"\n"
+            s += "  \"DOOR$STATE\"                = \"DISK$ELEV_DOORS:[STATE]\"\n"
+            s += "  \"BONJOUR$REGISTRY\"          = \"_ELEVATORSYS._TCP.LOCAL.\"\n"
+            s += "  \"SYS$NODE\"                  = \"\(nodeName)::\"\n"
+            s += "  \"SYS$LOGIN\"                 = \"ELEVATOR$ROOT:[\(username)]\"\n"
+            s += "  \"SYS$SYSDEVICE\"             = \"DISK$ELEV_SYS:\"\n"
+            s += "  \"SYS$DISK\"                  = \"\(defaultDevice)\"\n"
+        }
+        s += "\n(LNM$PROCESS_TABLE)\n"
+        s += "  \"SYS$COMMAND\"                = \"\(terminalName)\"\n"
+        s += "  \"SYS$INPUT\"                  = \"\(terminalName)\"\n"
+        s += "  \"SYS$OUTPUT\"                 = \"\(terminalName)\"\n"
+        s += "  \"SYS$ERROR\"                  = \"\(terminalName)\"\n"
+        for key in processLogicals.keys.sorted() {
+            let padded = ("\"" + key + "\"").padding(toLength: 28, withPad: " ", startingAt: 0)
+            s += "  \(padded) = \"\(processLogicals[key] ?? "")\"\n"
+        }
+        return s
+    }
+
+    func showSymbol(_ cmd: Parsed) -> String {
+        if let name = cmd.positional.dropFirst().first {
+            let key = name.uppercased()
+            if let builtin = builtinSymbol(key) {
+                return "  \(key) = \"\(builtin)\"\n"
+            }
+            if let v = symbols[key] {
+                return "  \(key) = \"\(v)\"\n"
+            }
+            fail("DCL-W-UNDSYM", "%X00038150")
+            return "%DCL-W-UNDSYM, undefined symbol - check validity and spelling\n"
+        }
+        if symbols.isEmpty {
+            return "  (no local or global symbols defined)\n"
+        }
+        var s = "\n"
+        for k in symbols.keys.sorted() {
+            s += "  \(k) = \"\(symbols[k] ?? "")\"\n"
+        }
+        return s
+    }
+
+    /// DCL exposes a few read-only built-in symbols every shell sees.
+    func builtinSymbol(_ name: String) -> String? {
+        switch name {
+        case "$STATUS":   return lastStatus
+        case "$SEVERITY":
+            let parsed = UInt32(lastStatus.replacingOccurrences(of: "%X", with: ""), radix: 16) ?? 1
+            return String(parsed & 0x7)
+        case "$RESTART":  return "FALSE"
+        case "$PID":      return pid
+        case "$PROCESS":  return "DCL_\(username)"
+        default:          return nil
+        }
+    }
+
+    func showError() -> String {
+        let baseSeq = 4870 + Int.random(in: 0...12)
+        var s = "\nERROR LOG SUMMARY -- last 5 entries\n"
+        s += "   Sequence  Date / Time             Source           Code           Detail\n"
+        s += "   ---------+------------------------+----------------+--------------+-----------------------------------\n"
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-2400)))  CAB_03_DOORS     %X0000002C     DOOR SVC TIMEOUT, retried (success)\n", baseSeq + 0)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1820)))  COMM_NETSRV      %X00000018     PEER UNREACHABLE: ASCEN3::ROOM3\n", baseSeq + 11)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1100)))  CAB_01_BRAKE     %X00000004     INFO: routine brake test PASS\n", baseSeq + 20)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-220)))  DOOR_SVC_03      %X00000040     PAGE FAULT FLOOD, throttling\n", baseSeq + 31)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-12)))  BONJOUR_PUBSRV   %X00000001     SS$_NORMAL, service re-announced\n", baseSeq + 40)
+        return s
+    }
+
+    func showStatus() -> String {
+        let upS = Int(host.uptime())
+        var s = "\n  Status on \(stamp(Date()))\n"
+        s += String(format: "  Elapsed CPU: 0 00:%02d:%02d.%02d   Buf I/O: %-6d   Dir I/O: %-6d   Page faults: %-6d\n",
+                    (upS / 60) % 60, upS % 60, (upS * 7) % 100,
+                    upS / 4, upS / 8, upS / 2)
+        s += "  Connect time: \(uptimeString(from: bootTime, to: Date()))\n"
+        return s
+    }
+
+    func showLicense() -> String {
+        var s = "\nActive licenses on \(nodeName) (\(osTitle) \(osVersion)):\n\n"
+        s += "OPENVMS-X86          Active            (loaded)\n"
+        s += "DECNET-PLUS          Active            (loaded)\n"
+        s += "LPD-DIAG             Active            (loaded)\n"
+        s += "BONJOUR-PROXY        Active            (loaded)\n"
+        return s
+    }
+
+    func showCPU() -> String {
+        let now = Date()
+        let usage = host.cpuUsage()
+        let kernel = usage.system * 0.55
+        let exec   = usage.system * 0.25
+        let super_ = usage.system * 0.15
+        let intr   = usage.system * 0.05
+
+        let freqLabel: String
+        if host.cpuFrequencyMHz > 0 {
+            freqLabel = "\(host.cpuFrequencyMHz) MHz"
+        } else {
+            freqLabel = "host clock"
+        }
+        let cores = "\(host.activeProcessorCount) of \(host.processorCount) processors online"
+
+        var s = "\n  CPU 0  (\(freqLabel))  -- \(stamp(now))\n"
+        s += "    Model:     \(host.cpuModel)\n"
+        s += "    Mode:      Multiprocessing primary\n"
+        s += "    State:     Run   [\(cores)]\n"
+        s += String(format: "    Idle:      %5.2f%%\n", usage.idle)
+        s += String(format: "    Kernel:    %5.2f%%\n", kernel)
+        s += String(format: "    Exec:      %5.2f%%\n", exec)
+        s += String(format: "    Super:     %5.2f%%\n", super_)
+        s += String(format: "    User:      %5.2f%%\n", usage.user + usage.nice)
+        s += String(format: "    Interrupt: %5.2f%%\n", intr)
+        return s
+    }
+
+    func showDefault() -> String {
+        return "  \(defaultDevice)\(defaultDirectory)\n"
+    }
+
+    func showQuota() -> String {
+        let used = 15000, authorized = 65000
+        let available = authorized - used
+        let overdraft = 1000
+        var s = "\nUser [ELEVATOR,\(username)] has \(used) blocks used, \(available) available,\n"
+        s += "   of \(authorized) authorized and permitted overdraft of \(overdraft) blocks on \(defaultDevice)\n"
+        return s
+    }
+
+    func showProtection() -> String {
+        return "  SYSTEM=RWED, OWNER=RWED, GROUP=RE, WORLD=NO ACCESS\n"
+    }
+
+    func showTerminal() -> String {
+        var s = "\nTerminal:  \(terminalName)        Device_Type: VT100         Owner: \(username)\n\n"
+        s += "Input:    9600  LFfill: 0  Width: \(terminalWidth)  Parity: None\n"
+        s += "Output:   9600  CRfill: 0  Page:  \(terminalPage)\n\n"
+        s += "Terminal Characteristics:\n"
+        s += "  Interactive    Echo            Type_ahead     No Escape\n"
+        s += "  No Hostsync    TTsync          Lowercase      Tab\n"
+        s += "  Wrap           Scope           No Remote      Eightbit\n"
+        s += "  Broadcast      No Readsync     No Form        Fulldup\n"
+        s += "  No Modem       No Local_echo   No Autobaud    Hangup\n"
+        s += "  No Brdcstmbx   No DMA          No Altypeahd   Set_speed\n"
+        s += "  No Commsync    Line Editing    Overstrike editing            Smooth Scroll\n"
+        s += "  No Fallback    No Dialup       No Secure server\n"
+        s += "  No Disconnect  No Pasthru      No Syspassword                No SIXEL Graphics\n"
+        s += "  No Soft Characters             No Printer Port               Numeric Keypad\n"
+        s += "  ANSI_CRT       Edit_mode       DEC_CRT        DEC_CRT2      DEC_CRT3\n"
+        s += "  Advanced_video Block_mode      No Regis       No Printer\n"
+        return s
+    }
+
+    func showWorkingSet() -> String {
+        var s = "\nWorking Set     /Limit=\(2048)  /Quota=\(8192)  /Extent=\(16384)\n"
+        s += "Adjustment enabled    Authorized Quota=\(8192)   Authorized Extent=\(16384)\n"
+        return s
+    }
+
+    func showVersion() -> String {
+        return "\n\(osTitle) \(osVersion)\n"
+    }
+
+    func showRMS() -> String {
+        var s = "\nRMS_DEFAULT process values:\n"
+        s += "  Multiblock count:        16        Multibuffer counts:\n"
+        s += "                                       Indexed:  0    Relative:  0\n"
+        s += "                                       Sequential: 0  Network:   0\n"
+        s += "  Prolog level:             0        Extend quantity:        0\n"
+        s += "  Block count:             32        Buffer count:           4\n"
+        return s
+    }
+
+    func showIntrusion() -> String {
+        var s = "\nIntrusion   Type      Count    Expiration    Source\n"
+        s += "   (no intrusion records found)\n"
+        return s
+    }
+
+    func showCluster() -> String {
+        let w = 33
+        let bar = String(repeating: "─", count: w - 2)
+        var s = "\n              View of Cluster from system ID 1025  node: \(nodeName)\n"
+        s += "┌\(bar)┐\n"
+        s += "│        SYSTEMS               │\n"
+        s += "│   NODE      SOFTWARE   STATUS │\n"
+        s += "├\(bar)┤\n"
+        s += "│  \(nodeName.padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())  MEMBER │\n"
+        if let peers = network?.peers {
+            for peer in peers {
+                let nm = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8)
+                s += "│  \(String(nm).padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())  MEMBER │\n"
+            }
+        }
+        s += "└\(bar)┘\n"
+        return s
+    }
+
+    func showConnections() -> String {
+        var s = "\nLogical Link  Node      Process       Remote link  Remote user\n"
+        s += "============  ====      =======       ===========  ===========\n"
+        if let peers = network?.peers, !peers.isEmpty {
+            for (i, peer) in peers.enumerated() {
+                let nm = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8)
+                let nodePad = ("\(nm)::").padding(toLength: 9, withPad: " ", startingAt: 0)
+                let procPad = "BONJOUR_PROXY".padding(toLength: 13, withPad: " ", startingAt: 0)
+                s += String(format: "%-13d %@ %@ %-12d %@\n",
+                            32768 + i, nodePad, procPad,
+                            32768 + i + 1, "_ELEVATORSYS")
+            }
+        } else {
+            s += "       (no active links)\n"
+        }
+        return s
+    }
+
+    func showAudit() -> String {
+        return "\nSystem security audit characteristics:\n  Security alarm failure mode = NONE\n  Security audit failure mode = NONE\n  (no recent audit events)\n"
+    }
+}
