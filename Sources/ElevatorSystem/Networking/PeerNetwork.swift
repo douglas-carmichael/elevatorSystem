@@ -65,8 +65,17 @@ final class PeerNetwork: ObservableObject {
         state = .idle
     }
 
+    private static func tcpParameters() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        tcp.enableKeepalive = true
+        tcp.keepaliveIdle = 10
+        tcp.keepaliveInterval = 5
+        tcp.keepaliveCount = 3
+        return NWParameters(tls: nil, tcp: tcp)
+    }
+
     private func startListener() {
-        let parameters = NWParameters.tcp
+        let parameters = Self.tcpParameters()
         let listener: NWListener
         do {
             listener = try NWListener(using: parameters)
@@ -127,7 +136,7 @@ final class PeerNetwork: ObservableObject {
     }
 
     private func openConnection(to result: NWBrowser.Result, expectedPeerId: String) {
-        let nwConn = NWConnection(to: result.endpoint, using: .tcp)
+        let nwConn = NWConnection(to: result.endpoint, using: Self.tcpParameters())
         let peer = PeerConnection(connection: nwConn,
                                    isClientSide: true,
                                    expectedPeerId: expectedPeerId,

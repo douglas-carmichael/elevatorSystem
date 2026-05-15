@@ -5,10 +5,17 @@ enum Sim {
     static let firstFloor: Int = 1
     static let lastFloor: Int = floorCount
 
-    static let travelFloorsPerSecond: Double = 0.9
-    static let doorOpenDuration: Double = 0.7
-    static let doorCloseDuration: Double = 0.7
-    static let doorDwellDuration: Double = 2.8
+    // Passenger cab profile
+    static let paxSpeed: Double = 0.9
+    static let paxDoorOpen: Double = 0.7
+    static let paxDoorClose: Double = 0.7
+    static let paxDoorDwell: Double = 2.8
+
+    // Freight cab profile — slower travel, heavier doors, longer loading
+    static let freightSpeed: Double = 0.5
+    static let freightDoorOpen: Double = 1.4
+    static let freightDoorClose: Double = 1.6
+    static let freightDoorDwell: Double = 5.0
 
     static let autoMinIdleSeconds: Double = 1.5
     static let autoMaxIdleSeconds: Double = 6.0

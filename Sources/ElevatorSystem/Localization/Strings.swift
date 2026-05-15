@@ -33,6 +33,8 @@ enum Strings {
 
         add("status.peers",         "PEERS",                               "PAIRS")
         add("status.peers.none",    "NONE — AUTO MODE",                    "AUCUN — MODE AUTO")
+        add("status.peers.node",    "NODE",                                "NŒUD")
+        add("status.peers.nodes",   "NODES",                               "NŒUDS")
         add("status.discovering",   "SCANNING NETWORK...",                 "ANALYSE DU RÉSEAU...")
         add("status.elevators",     "CABS",                                "CABINES")
         add("status.you",           "NODE",                                "NŒUD")
@@ -44,9 +46,13 @@ enum Strings {
         add("elev.doors",           "DOORS",                               "PORTES")
         add("elev.queue",           "QUEUE",                               "FILE")
         add("elev.owner",           "OWNER",                               "PROPR")
+        add("elev.profile",         "TYPE",                                "TYPE")
+        add("elev.profile.pax",     "PAX",                                 "PASS.")
+        add("elev.profile.freight", "FRT",                                 "FRET")
         add("elev.aitag",           "AUTO",                                "AUTO")
         add("elev.localtag",        "LOCAL",                               "LOCAL")
         add("elev.remotetag",       "REMOTE",                              "DIST.")
+        add("elev.remoteautotag",   "REMOTE/AUTO",                         "DIST./AUTO")
 
         add("dir.up",               "UP",                                  "MONTE")
         add("dir.down",             "DOWN",                                "DESC")
@@ -65,6 +71,9 @@ enum Strings {
         add("btn.mode.auto",        "AUTO",                                "AUTO")
         add("btn.mode.manual",      "MANUAL",                              "MANUEL")
         add("btn.mode.label",       "MODE",                                "MODE")
+        add("btn.profile.label",    "TYPE",                                "TYPE")
+        add("btn.profile.pax",      "PAX",                                 "PASS.")
+        add("btn.profile.freight",  "FRT",                                 "FRET")
 
         add("hint.line",            "F1/?=HELP  TAB=NEXT CAB  L=LANG  D=DCL  A=AUTO/MAN  Q=QUIT",
                                     "F1/?=AIDE  TAB=CAB SUIV  L=LANGUE  D=DCL  A=AUTO/MAN  Q=QUITTER")

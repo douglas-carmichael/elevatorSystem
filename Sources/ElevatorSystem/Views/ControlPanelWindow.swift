@@ -23,7 +23,7 @@ struct ControlPanelWindow: View {
                 StatusStrip()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        ForEach(world.elevators) { elev in
+                        ForEach(world.sortedElevators) { elev in
                             ElevatorPanel(elevator: elev,
                                           focused: focusedCabId == elev.id)
                         }
@@ -191,10 +191,12 @@ private struct StatusStrip: View {
     }
 
     private var peersValue: String {
-        if network.peers.isEmpty {
-            return language.t("status.peers.none")
+        let count = network.peers.count
+        switch count {
+        case 0:  return language.t("status.peers.none")
+        case 1:  return "1 \(language.t("status.peers.node"))"
+        default: return "\(count) \(language.t("status.peers.nodes"))"
         }
-        return network.peers.map { $0.displayName }.joined(separator: ", ")
     }
 }
 
@@ -218,6 +220,9 @@ private struct ElevatorPanel: View {
                     StatusLine(label: language.t("elev.doors"),
                                value: doorString,
                                valueColor: doorColor)
+                    StatusLine(label: language.t("elev.profile"),
+                               value: profileString,
+                               valueColor: profileColor)
                     Spacer()
                     if focused {
                         Text("◀ \(language.t("help.focus.hint"))")
@@ -233,6 +238,7 @@ private struct ElevatorPanel: View {
                 HStack(spacing: 10) {
                     DoorControls(elevator: elevator)
                     Spacer()
+                    ProfileControls(elevator: elevator)
                     ModeControls(elevator: elevator)
                 }
             }
@@ -241,15 +247,20 @@ private struct ElevatorPanel: View {
     }
 
     private var titleLine: String {
-        let tag = elevator.automatic
-            ? language.t("elev.aitag")
-            : (world.canControl(elevator) ? language.t("elev.localtag") : language.t("elev.remotetag"))
-        return "\(language.t("elev.cab")) \(elevator.label) [\(tag)]"
+        let isLocal = world.canControl(elevator)
+        let tag: String
+        if isLocal {
+            tag = elevator.automatic ? language.t("elev.aitag") : language.t("elev.localtag")
+        } else {
+            tag = elevator.automatic ? language.t("elev.remoteautotag") : language.t("elev.remotetag")
+        }
+        return "\(language.t("elev.cab")) \(world.displayLabel(for: elevator)) [\(tag)]"
     }
 
     private var titleAccent: Color {
-        if elevator.automatic { return RetroTheme.cyan }
-        if world.canControl(elevator) { return RetroTheme.amber }
+        if world.canControl(elevator) {
+            return elevator.automatic ? RetroTheme.cyan : RetroTheme.amber
+        }
         return RetroTheme.greenDim
     }
 
@@ -287,6 +298,20 @@ private struct ElevatorPanel: View {
         case .open:    return RetroTheme.green
         case .closed:  return RetroTheme.amberDim
         default:       return RetroTheme.amber
+        }
+    }
+
+    private var profileString: String {
+        switch elevator.profile {
+        case .pax:     return language.t("elev.profile.pax")
+        case .freight: return language.t("elev.profile.freight")
+        }
+    }
+
+    private var profileColor: Color {
+        switch elevator.profile {
+        case .pax:     return RetroTheme.green
+        case .freight: return RetroTheme.cyan
         }
     }
 
@@ -333,6 +358,33 @@ private struct DoorControls: View {
             RetroButton(language.t("btn.door.close"),
                         enabled: world.canControl(elevator)) {
                 _ = world.mutateLocal(elevator.id) { $0.requestDoorsClose() }
+            }
+        }
+    }
+}
+
+private struct ProfileControls: View {
+    let elevator: Elevator
+    @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var language: AppLanguage
+
+    var body: some View {
+        let canControl = world.canControl(elevator)
+        HStack(spacing: 6) {
+            Text("\(language.t("btn.profile.label")):")
+                .font(RetroTheme.monoSm)
+                .foregroundColor(RetroTheme.amberDim)
+            RetroButton(language.t("btn.profile.pax"),
+                        enabled: canControl,
+                        highlighted: elevator.profile == .pax) {
+                guard canControl, elevator.profile != .pax else { return }
+                _ = world.mutateLocal(elevator.id) { $0.profile = .pax }
+            }
+            RetroButton(language.t("btn.profile.freight"),
+                        enabled: canControl,
+                        highlighted: elevator.profile == .freight) {
+                guard canControl, elevator.profile != .freight else { return }
+                _ = world.mutateLocal(elevator.id) { $0.profile = .freight }
             }
         }
     }

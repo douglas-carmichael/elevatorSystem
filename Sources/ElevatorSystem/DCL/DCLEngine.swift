@@ -412,7 +412,8 @@ final class DCLEngine: ObservableObject {
         let cabs = world?.elevators ?? []
         for (i, cab) in cabs.prefix(6).enumerated() {
             let cabPid = String(format: "%08X", 0x040A + i)
-            let name = String(format: "CAB_%@_TASK", cab.label).padding(toLength: 16, withPad: " ", startingAt: 0)
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            let name = String(format: "CAB_%@_TASK", dLabel).padding(toLength: 16, withPad: " ", startingAt: 0)
             let state = cab.doors == .open ? "LEF" : (cab.direction == .idle ? "HIB" : "COM")
             let io = 800 + (i * 47)
             let cpu = String(format: "0 00:00:%02d.%02d", 12 + i, (i * 17 + 9) % 100)
@@ -513,17 +514,19 @@ final class DCLEngine: ObservableObject {
     private func showQueue() -> String {
         let cabs = world?.elevators ?? []
         var s = "\nPending floor calls -- \(stamp(Date()))\n\n"
-        s += "Cab    Owner      Mode   Floor  Direction  Doors    Queue\n"
-        s += "---    -----      ----   -----  ---------  -----    -----\n"
+        s += "Cab    Owner      Mode   Type  Floor  Direction  Doors    Queue\n"
+        s += "---    -----      ----   ----  -----  ---------  -----    -----\n"
         for cab in cabs {
             let owner = (world?.canControl(cab) ?? false) ? "LOCAL" : "REMOTE"
             let mode  = cab.automatic ? "AUTO" : "MAN."
+            let type  = cab.profile == .freight ? "FRT" : "PAX"
             let floor = String(format: "%5d", cab.displayFloor)
             let dir   = (cab.direction == .up ? "UP" :
                           cab.direction == .down ? "DOWN" : "---").padding(toLength: 9, withPad: " ", startingAt: 0)
             let doors = String(describing: cab.doors).uppercased().padding(toLength: 8, withPad: " ", startingAt: 0)
             let queue = cab.queue.isEmpty ? "(empty)" : cab.queue.map(String.init).joined(separator: " > ")
-            s += "\(cab.label.padding(toLength: 6, withPad: " ", startingAt: 0)) \(owner.padding(toLength: 10, withPad: " ", startingAt: 0)) \(mode.padding(toLength: 6, withPad: " ", startingAt: 0)) \(floor)  \(dir)  \(doors) \(queue)\n"
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            s += "\(dLabel.padding(toLength: 6, withPad: " ", startingAt: 0)) \(owner.padding(toLength: 10, withPad: " ", startingAt: 0)) \(mode.padding(toLength: 6, withPad: " ", startingAt: 0)) \(type.padding(toLength: 5, withPad: " ", startingAt: 0)) \(floor)  \(dir)  \(doors) \(queue)\n"
         }
         if cabs.isEmpty { s += "  (no cabs registered)\n" }
         return s
@@ -872,8 +875,9 @@ final class DCLEngine: ObservableObject {
             fail("SET-W-NOSUCHCAB", "%X000080A4")
             return "%SET-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
+        let dLabel = world.displayLabel(for: cab)
         guard world.canControl(cab) else {
-            return "%SET-W-REMOTE, cab \(cab.label) is owned by a remote node\n"
+            return "%SET-W-REMOTE, cab \(dLabel) is owned by a remote node\n"
         }
         guard let auto = automation else {
             return "%SET-F-NOAUTO, automation subsystem not running\n"
@@ -882,21 +886,35 @@ final class DCLEngine: ObservableObject {
             let was = auto.isAutomatic(cabId: cab.id)
             auto.takeManualControl(cabId: cab.id)
             if was {
-                return "%SET-I-CABMAN, cab \(cab.label) released from auto-dispatch -- MANUAL CONTROL\n"
+                return "%SET-I-CABMAN, cab \(dLabel) released from auto-dispatch -- MANUAL CONTROL\n"
             } else {
-                return "%SET-I-NOCHG, cab \(cab.label) was already under manual control\n"
+                return "%SET-I-NOCHG, cab \(dLabel) was already under manual control\n"
             }
         }
         if cmd.hasQualifier("AUTOMATIC", min: 4) || cmd.hasQualifier("AUTO", min: 4) {
             let was = auto.isAutomatic(cabId: cab.id)
             auto.returnToAutomatic(cabId: cab.id)
             if !was {
-                return "%SET-I-CABAUTO, cab \(cab.label) returned to auto-dispatch\n"
+                return "%SET-I-CABAUTO, cab \(dLabel) returned to auto-dispatch\n"
             } else {
-                return "%SET-I-NOCHG, cab \(cab.label) was already under auto-dispatch\n"
+                return "%SET-I-NOCHG, cab \(dLabel) was already under auto-dispatch\n"
             }
         }
-        return "%SET-W-MISSQUAL, /MANUAL or /AUTOMATIC required for SET CAB\n"
+        if cmd.hasQualifier("PAX", min: 3) {
+            let was = cab.profile
+            _ = world.mutateLocal(cab.id) { $0.profile = .pax }
+            return was == .pax
+                ? "%SET-I-NOCHG, cab \(dLabel) was already PAX\n"
+                : "%SET-I-CABPAX, cab \(dLabel) profile set to PASSENGER\n"
+        }
+        if cmd.hasQualifier("FREIGHT", min: 3) || cmd.hasQualifier("FRT", min: 3) {
+            let was = cab.profile
+            _ = world.mutateLocal(cab.id) { $0.profile = .freight }
+            return was == .freight
+                ? "%SET-I-NOCHG, cab \(dLabel) was already FREIGHT\n"
+                : "%SET-I-CABFRT, cab \(dLabel) profile set to FREIGHT\n"
+        }
+        return "%SET-W-MISSQUAL, /MANUAL, /AUTOMATIC, /PAX, or /FREIGHT required for SET CAB\n"
     }
 
     // MARK: -- Cab control verbs
@@ -921,11 +939,12 @@ final class DCLEngine: ObservableObject {
         guard let cab = findCab(label: label, in: world) else {
             return "%CALL-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
+        let dLabel = world.displayLabel(for: cab)
         guard world.canControl(cab) else {
-            return "%CALL-W-REMOTE, cab \(cab.label) is owned by a remote node\n"
+            return "%CALL-W-REMOTE, cab \(dLabel) is owned by a remote node\n"
         }
         _ = world.mutateLocal(cab.id) { e in e.enqueue(floor: floor) }
-        return "%CALL-S-QUEUED, cab \(cab.label) queued for floor \(floor)\n"
+        return "%CALL-S-QUEUED, cab \(dLabel) queued for floor \(floor)\n"
     }
 
     private func openCmd(_ cmd: Parsed) -> String {
@@ -939,9 +958,10 @@ final class DCLEngine: ObservableObject {
         guard let cab = findCab(label: label, in: world) else {
             return "%OPEN-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
-        guard world.canControl(cab) else { return "%OPEN-W-REMOTE, cab \(cab.label) is remote\n" }
+        let dLabel = world.displayLabel(for: cab)
+        guard world.canControl(cab) else { return "%OPEN-W-REMOTE, cab \(dLabel) is remote\n" }
         _ = world.mutateLocal(cab.id) { e in e.requestDoorsOpen() }
-        return "%OPEN-S-DOOR, cab \(cab.label) doors opening\n"
+        return "%OPEN-S-DOOR, cab \(dLabel) doors opening\n"
     }
 
     private func closeCmd(_ cmd: Parsed) -> String {
@@ -954,9 +974,10 @@ final class DCLEngine: ObservableObject {
         guard let cab = findCab(label: label, in: world) else {
             return "%CLOSE-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
-        guard world.canControl(cab) else { return "%CLOSE-W-REMOTE, cab \(cab.label) is remote\n" }
+        let dLabel = world.displayLabel(for: cab)
+        guard world.canControl(cab) else { return "%CLOSE-W-REMOTE, cab \(dLabel) is remote\n" }
         _ = world.mutateLocal(cab.id) { e in e.requestDoorsClose() }
-        return "%CLOSE-S-DOOR, cab \(cab.label) doors closing\n"
+        return "%CLOSE-S-DOOR, cab \(dLabel) doors closing\n"
     }
 
     private func stopCmd(_ cmd: Parsed) -> String {
@@ -970,10 +991,11 @@ final class DCLEngine: ObservableObject {
         guard let cab = findCab(label: label, in: world) else {
             return "%STOP-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
-        guard world.canControl(cab) else { return "%STOP-W-REMOTE, cab \(cab.label) is remote\n" }
+        let dLabel = world.displayLabel(for: cab)
+        guard world.canControl(cab) else { return "%STOP-W-REMOTE, cab \(dLabel) is remote\n" }
         let n = cab.queue.count
         _ = world.mutateLocal(cab.id) { e in e.queue.removeAll() }
-        return "%STOP-S-CLEARED, cab \(cab.label) queue cleared (\(n) call\(n == 1 ? "" : "s") aborted)\n"
+        return "%STOP-S-CLEARED, cab \(dLabel) queue cleared (\(n) call\(n == 1 ? "" : "s") aborted)\n"
     }
 
     // MARK: -- File-ish verbs
@@ -1480,7 +1502,7 @@ final class DCLEngine: ObservableObject {
 
     private func startBrakeTest() {
         let pass = tr("diag.status.pass")
-        let cabs = (world?.elevators.map(\.label).sorted()) ?? ["01","02","03"]
+        let cabs = (world?.elevators.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()) ?? ["L01","L02","L03"]
         var steps: [TestStep] = []
         for label in cabs {
             steps.append(TestStep(label: String(format: tr("diag.step.brake.cab"), label)) {
@@ -1498,7 +1520,7 @@ final class DCLEngine: ObservableObject {
 
     private func startDoorTest() {
         let pass = tr("diag.status.pass")
-        let cabs = (world?.elevators.map(\.label).sorted()) ?? ["01","02","03"]
+        let cabs = (world?.elevators.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()) ?? ["L01","L02","L03"]
         var steps: [TestStep] = []
         for label in cabs {
             steps.append(TestStep(label: String(format: tr("diag.step.door.cycle"), label)) {
@@ -1518,7 +1540,7 @@ final class DCLEngine: ObservableObject {
     private func startWeightCal() {
         let pass = tr("diag.status.pass")
         let ok   = tr("diag.status.ok")
-        let cabs = (world?.elevators.map(\.label).sorted()) ?? ["01","02","03"]
+        let cabs = (world?.elevators.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()) ?? ["L01","L02","L03"]
         var steps: [TestStep] = []
         for label in cabs {
             steps.append(TestStep(label: String(format: tr("diag.step.weight.zero"), label)) {
@@ -1849,7 +1871,8 @@ final class DCLEngine: ObservableObject {
             let pid = String(format: "%08X", 0x0404 + i)
             let pct = max(0.5, min(40.0, Double((i * 7 + Int(usage.busy)) % 35)))
             let st  = cab.direction == .idle ? "HIB" : "COM"
-            rows.append((pid, "CAB_\(cab.label)_TASK", pct, st))
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            rows.append((pid, "CAB_\(dLabel)_TASK", pct, st))
         }
         rows.append(("0000040A", "COMM_NETSRV",    1.2, "LEF"))
         rows.append(("0000040B", "BONJOUR_PUBSRV", 0.4, "LEF"))
@@ -2114,6 +2137,7 @@ final class DCLEngine: ObservableObject {
             s += "      PROCESS/PRIORITY=n /NAME=name\n"
             s += "      PASSWORD\n"
             s += "      CAB <label> /MANUAL | /AUTOMATIC      <-- demo manual control\n"
+            s += "      CAB <label> /PAX | /FREIGHT           <-- set cab profile\n"
             s += "      ON, NOON, VERIFY, NOVERIFY\n"
             return s
         case matches(t, "CALL"):
@@ -2144,12 +2168,14 @@ final class DCLEngine: ObservableObject {
             return s
         case matches(t, "ELEVATOR"):
             var s = "\n  Elevator demo flow:\n"
-            s += "    SET CAB 02 /MANUAL          ! Disable auto-driver for cab 02\n"
-            s += "    CALL CAB 02 FLOOR 7         ! Drive it to floor 7\n"
-            s += "    OPEN CAB 02                 ! Open the doors\n"
-            s += "    CLOSE CAB 02                ! Close the doors\n"
-            s += "    STOP CAB 02                 ! Cancel any pending calls\n"
-            s += "    SET CAB 02 /AUTOMATIC       ! Hand control back to the auto-driver\n"
+            s += "    SET CAB L02 /MANUAL         ! Disable auto-driver for cab L02\n"
+            s += "    CALL CAB L02 FLOOR 7        ! Drive it to floor 7\n"
+            s += "    OPEN CAB L02                ! Open the doors\n"
+            s += "    CLOSE CAB L02               ! Close the doors\n"
+            s += "    STOP CAB L02                ! Cancel any pending calls\n"
+            s += "    SET CAB L02 /AUTOMATIC      ! Hand control back to the auto-driver\n"
+            s += "    SET CAB L02 /FREIGHT        ! Designate as freight cab\n"
+            s += "    SET CAB L02 /PAX            ! Designate as passenger cab\n"
             return s
 
         // Operator-level verbs.
@@ -2340,10 +2366,13 @@ final class DCLEngine: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    /// Find a cab by user-supplied label, tolerating zero-padding ("2" finds "02")
-    /// and case ("CAB-A" matches "cab-a").
+    /// Find a cab by user-supplied label, matching against display labels (L01, R01)
+    /// as well as raw labels (01). Tolerates zero-padding ("2" finds "02") and case.
     private func findCab(label raw: String, in world: ElevatorWorld) -> Elevator? {
         let needle = raw.uppercased()
+        if let byDisplay = world.elevators.first(where: { world.displayLabel(for: $0).uppercased() == needle }) {
+            return byDisplay
+        }
         if let exact = world.elevators.first(where: { $0.label.uppercased() == needle }) {
             return exact
         }

@@ -41,13 +41,14 @@ final class ElevatorWorld: ObservableObject {
     }
 
     private func advance(_ elev: inout Elevator, dt: Double) {
+        let prof = elev.profile
         switch elev.doors {
         case .opening:
-            elev.doorProgress += dt / Sim.doorOpenDuration
+            elev.doorProgress += dt / prof.doorOpenDuration
             if elev.doorProgress >= 1.0 {
                 elev.doorProgress = 1.0
                 elev.doors = .open
-                elev.doorDwellRemaining = Sim.doorDwellDuration
+                elev.doorDwellRemaining = prof.doorDwellDuration
             }
             elev.direction = .idle
             return
@@ -60,7 +61,7 @@ final class ElevatorWorld: ObservableObject {
             elev.direction = .idle
             return
         case .closing:
-            elev.doorProgress += dt / Sim.doorCloseDuration
+            elev.doorProgress += dt / prof.doorCloseDuration
             if elev.doorProgress >= 1.0 {
                 elev.doorProgress = 0
                 elev.doors = .closed
@@ -88,7 +89,7 @@ final class ElevatorWorld: ObservableObject {
         }
 
         elev.direction = dy > 0 ? .up : .down
-        let step = Sim.travelFloorsPerSecond * dt * (dy > 0 ? 1 : -1)
+        let step = prof.travelFloorsPerSecond * dt * (dy > 0 ? 1 : -1)
         if abs(step) >= abs(dy) {
             elev.position = Double(target)
         } else {
@@ -112,8 +113,29 @@ final class ElevatorWorld: ObservableObject {
         elevators.filter { $0.ownerPeerId == localPeerId }
     }
 
+    var sortedElevators: [Elevator] {
+        elevators.sorted { a, b in
+            let aLocal = a.ownerPeerId == localPeerId
+            let bLocal = b.ownerPeerId == localPeerId
+            if aLocal != bLocal { return aLocal }
+            return a.label.localizedStandardCompare(b.label) == .orderedAscending
+        }
+    }
+
     func canControl(_ elev: Elevator) -> Bool {
         elev.ownerPeerId == localPeerId
+    }
+
+    func displayLabel(for elev: Elevator) -> String {
+        if elev.ownerPeerId == localPeerId {
+            return "L\(elev.label)"
+        }
+        let remotePeerIds = Set(elevators.map(\.ownerPeerId))
+            .subtracting([localPeerId])
+            .sorted()
+        let index = remotePeerIds.firstIndex(of: elev.ownerPeerId) ?? 0
+        let letter = String(UnicodeScalar(UInt32(UnicodeScalar("A").value) + UInt32(index))!)
+        return "\(letter)\(elev.label)"
     }
 
     @discardableResult

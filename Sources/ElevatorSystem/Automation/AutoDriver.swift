@@ -80,17 +80,19 @@ final class AutoDriver: ObservableObject {
     private func maybeSpawn() {
         guard let world else { return }
         let alreadySpawned = !autoElevatorIds.isEmpty
-        let peerCount = network?.peers.count ?? 0
-        guard peerCount == 0, !alreadySpawned else { return }
+        guard !alreadySpawned else { return }
         let userOwnedCount = world.elevators.filter { $0.ownerPeerId == world.localPeerId && !$0.automatic }.count
         let labelOffset = userOwnedCount + 1
+        let freightIndex = Int.random(in: 0..<Sim.autoSpawnCount)
         for i in 0..<Sim.autoSpawnCount {
             let floor = Int.random(in: Sim.firstFloor...Sim.lastFloor)
             let label = String(format: "%02d", labelOffset + i)
+            let profile: CabProfile = i == freightIndex ? .freight : .pax
             var elev = Elevator.newAt(floor: floor,
                                        label: label,
                                        ownerPeerId: world.localPeerId,
-                                       automatic: true)
+                                       automatic: true,
+                                       profile: profile)
             elev.queue = [Int.random(in: Sim.firstFloor...Sim.lastFloor)]
             world.elevators.append(elev)
             autoElevatorIds.insert(elev.id)

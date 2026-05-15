@@ -1,5 +1,40 @@
 import Foundation
 
+enum CabProfile: String, Codable, CaseIterable, Identifiable {
+    case pax
+    case freight
+
+    var id: String { rawValue }
+
+    var travelFloorsPerSecond: Double {
+        switch self {
+        case .pax:     return Sim.paxSpeed
+        case .freight: return Sim.freightSpeed
+        }
+    }
+
+    var doorOpenDuration: Double {
+        switch self {
+        case .pax:     return Sim.paxDoorOpen
+        case .freight: return Sim.freightDoorOpen
+        }
+    }
+
+    var doorCloseDuration: Double {
+        switch self {
+        case .pax:     return Sim.paxDoorClose
+        case .freight: return Sim.freightDoorClose
+        }
+    }
+
+    var doorDwellDuration: Double {
+        switch self {
+        case .pax:     return Sim.paxDoorDwell
+        case .freight: return Sim.freightDoorDwell
+        }
+    }
+}
+
 enum DoorState: String, Codable, CaseIterable {
     case closed
     case opening
@@ -18,6 +53,7 @@ struct Elevator: Identifiable, Codable, Hashable {
     var label: String
     var ownerPeerId: String
     var automatic: Bool
+    var profile: CabProfile
     var position: Double
     var queue: [Int]
     var doors: DoorState
@@ -36,12 +72,13 @@ struct Elevator: Identifiable, Codable, Hashable {
 
     var displayFloor: Int { nearestFloor }
 
-    static func newAt(floor: Int, label: String, ownerPeerId: String, automatic: Bool) -> Elevator {
+    static func newAt(floor: Int, label: String, ownerPeerId: String, automatic: Bool, profile: CabProfile = .pax) -> Elevator {
         Elevator(
             id: UUID(),
             label: label,
             ownerPeerId: ownerPeerId,
             automatic: automatic,
+            profile: profile,
             position: Double(floor),
             queue: [],
             doors: .closed,
@@ -68,7 +105,7 @@ struct Elevator: Identifiable, Codable, Hashable {
                 doorProgress = 0
             }
         } else if doors == .open {
-            doorDwellRemaining = Sim.doorDwellDuration
+            doorDwellRemaining = profile.doorDwellDuration
         }
     }
 

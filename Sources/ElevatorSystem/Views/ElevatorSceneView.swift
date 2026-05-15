@@ -130,7 +130,7 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
                 cabNodes.removeValue(forKey: id)
             }
 
-            for (index, elev) in world.elevators.enumerated() {
+            for (index, elev) in world.sortedElevators.enumerated() {
                 let nodes = cabNodes[elev.id] ?? makeCabNodes(forIndex: index, elevator: elev)
                 cabNodes[elev.id] = nodes
                 positionShaft(nodes.shaftRoot, index: index)
@@ -221,7 +221,10 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
                                                 height: CGFloat(cabHeight),
                                                 length: CGFloat(cabDepth),
                                                 chamferRadius: 0.04))
-            cab.geometry?.firstMaterial?.diffuse.contents = NSColor(white: 0.22, alpha: 1)
+            let isFreight = elevator.profile == .freight
+            cab.geometry?.firstMaterial?.diffuse.contents = isFreight
+                ? NSColor(deviceRed: 0.18, green: 0.22, blue: 0.30, alpha: 1)
+                : NSColor(white: 0.22, alpha: 1)
             cab.geometry?.firstMaterial?.specular.contents = NSColor(white: 0.6, alpha: 1)
             shaft.addChildNode(cab)
 
@@ -241,13 +244,20 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
             doorRight.geometry?.firstMaterial?.emission.contents = NSColor(deviceRed: 0.08, green: 0.06, blue: 0.02, alpha: 1)
             cab.addChildNode(doorRight)
 
-            let labelText = SCNText(string: elevator.label, extrusionDepth: 0.04)
-            labelText.font = NSFont(name: RetroTheme.retroFontName, size: 0.35)
-                ?? NSFont.monospacedSystemFont(ofSize: 0.35, weight: .bold)
-            labelText.firstMaterial?.diffuse.contents = NSColor(deviceRed: 0.36, green: 1.0, blue: 0.42, alpha: 1)
-            labelText.firstMaterial?.emission.contents = NSColor(deviceRed: 0.18, green: 0.5, blue: 0.22, alpha: 1)
+            let labelText = SCNText(string: world.displayLabel(for: elevator), extrusionDepth: 0.04)
+            labelText.font = NSFont(name: RetroTheme.retroFontName, size: 0.28)
+                ?? NSFont.monospacedSystemFont(ofSize: 0.28, weight: .bold)
+            if isFreight {
+                labelText.firstMaterial?.diffuse.contents = NSColor(deviceRed: 0.30, green: 0.85, blue: 1.0, alpha: 1)
+                labelText.firstMaterial?.emission.contents = NSColor(deviceRed: 0.12, green: 0.35, blue: 0.50, alpha: 1)
+            } else {
+                labelText.firstMaterial?.diffuse.contents = NSColor(deviceRed: 0.36, green: 1.0, blue: 0.42, alpha: 1)
+                labelText.firstMaterial?.emission.contents = NSColor(deviceRed: 0.18, green: 0.5, blue: 0.22, alpha: 1)
+            }
             let labelNode = SCNNode(geometry: labelText)
-            labelNode.position = SCNVector3(-0.6, Double(shaftHeight) + 0.1, 0)
+            let (lMin, lMax) = labelNode.boundingBox
+            let textWidth = lMax.x - lMin.x
+            labelNode.position = SCNVector3(Double(-textWidth / 2), Double(shaftHeight) + 0.1, 0)
             shaft.addChildNode(labelNode)
 
             let floorText = SCNText(string: "1", extrusionDepth: 0.04)
@@ -277,6 +287,28 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
             let baseX = (cabWidth / 4)
             nodes.doorLeft.position = SCNVector3(Double(-baseX - slide), 0, Double(cabDepth) / 2)
             nodes.doorRight.position = SCNVector3(Double(baseX + slide), 0, Double(cabDepth) / 2)
+
+            let isFreight = elevator.profile == .freight
+            nodes.cab.geometry?.firstMaterial?.diffuse.contents = isFreight
+                ? NSColor(deviceRed: 0.18, green: 0.22, blue: 0.30, alpha: 1)
+                : NSColor(white: 0.22, alpha: 1)
+
+            if let textGeom = nodes.label.geometry as? SCNText {
+                let newLabel = world.displayLabel(for: elevator)
+                if (textGeom.string as? String) != newLabel {
+                    textGeom.string = newLabel
+                    let (lMin, lMax) = nodes.label.boundingBox
+                    let textWidth = lMax.x - lMin.x
+                    nodes.label.position.x = -textWidth / 2
+                }
+                if isFreight {
+                    textGeom.firstMaterial?.diffuse.contents = NSColor(deviceRed: 0.30, green: 0.85, blue: 1.0, alpha: 1)
+                    textGeom.firstMaterial?.emission.contents = NSColor(deviceRed: 0.12, green: 0.35, blue: 0.50, alpha: 1)
+                } else {
+                    textGeom.firstMaterial?.diffuse.contents = NSColor(deviceRed: 0.36, green: 1.0, blue: 0.42, alpha: 1)
+                    textGeom.firstMaterial?.emission.contents = NSColor(deviceRed: 0.18, green: 0.5, blue: 0.22, alpha: 1)
+                }
+            }
 
             if let textGeom = nodes.floorReadout.geometry as? SCNText {
                 let new = String(format: "%2d", elevator.displayFloor)
