@@ -8,6 +8,7 @@ struct ElevatorSystemApp: App {
     @StateObject private var network: PeerNetwork
     @StateObject private var automation: AutoDriver
     @StateObject private var dcl: DCLEngine
+    @StateObject private var telnet: DCLTelnetServer
 
     init() {
         let peerId = UUID().uuidString
@@ -16,11 +17,13 @@ struct ElevatorSystemApp: App {
         let network = PeerNetwork(peerId: peerId, label: label)
         let automation = AutoDriver()
         let dcl = DCLEngine()
+        let telnet = DCLTelnetServer()
         _language = StateObject(wrappedValue: AppLanguage())
         _world = StateObject(wrappedValue: world)
         _network = StateObject(wrappedValue: network)
         _automation = StateObject(wrappedValue: automation)
         _dcl = StateObject(wrappedValue: dcl)
+        _telnet = StateObject(wrappedValue: telnet)
     }
 
     var body: some Scene {
@@ -70,6 +73,8 @@ struct ElevatorSystemApp: App {
         automation.attach(world: world, network: network)
         automation.start()
         dcl.attach(world: world, network: network, automation: automation, language: language)
+        telnet.attach(world: world, network: network, automation: automation, language: language)
+        telnet.start()
     }
 
     /// Looks for another running ElevatorSystem process on this Mac.
