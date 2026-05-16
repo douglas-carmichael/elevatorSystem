@@ -27,6 +27,7 @@ extension DCLEngine {
         case matches(what, "LOCK",        min: 4): return "LOCK"
         case matches(what, "CLUSTER",     min: 3): return "CLUSTER"
         case matches(what, "FCP"):                 return "FCP"
+        case matches(what, "DYNAMICS",    min: 3): return "DYNAMICS"
         case matches(what, "ALL_CLASSES", min: 3): return "ALL_CLASSES"
         default: return "SYSTEM"
         }
@@ -44,6 +45,7 @@ extension DCLEngine {
         case "LOCK":        return monitorLock()
         case "CLUSTER":     return monitorCluster()
         case "FCP":         return monitorFCP()
+        case "DYNAMICS":    return monitorDynamics()
         case "ALL_CLASSES": return monitorSystem() + monitorIO() + monitorStates()
         default:            return monitorSystem()
         }
@@ -506,5 +508,69 @@ extension DCLEngine {
         s += mrow("CPU Tick Rate",                osc(4.2, 4.4) + totalDiskOps * 0.01)
         s += mrow("File Sys Page Fault Rate",     rates.pageFaultRate * 0.0004)
         return s
+    }
+
+    /// LPD layered-product monitor utility: shows the live trapezoidal
+    /// velocity-profile state for every cab on the dispatcher. Position
+    /// is reported in floors (×100 = % between floors), velocity in
+    /// floors / sec with a sign for direction, acceleration in floors /
+    /// sec² derived from the velocity delta against the previous frame
+    /// (so refresh-to-refresh the figure follows the motor command),
+    /// target is the next queued floor, and the state column tells you
+    /// which segment of the profile the cab is in.
+    func monitorDynamics() -> String {
+        let now = Date()
+        var s = mheader("CAB DYNAMICS (LPD)")
+        s += "  Cab     Position    Velocity      Accel       Target   State\n"
+        s += "  ---     --------    ----------    --------    ------   -----\n"
+
+        let cabs = world?.sortedElevators ?? []
+        if cabs.isEmpty {
+            s += "  (no cabs registered)\n"
+            return s
+        }
+        let dt = max(0.001, now.timeIntervalSince(lastDynamicsSampleAt))
+        for cab in cabs {
+            let dLabel = world?.displayLabel(for: cab) ?? cab.label
+            let prevVel = lastDynamicsVelocity[cab.id] ?? cab.velocity
+            let accel = (cab.velocity - prevVel) / dt
+            lastDynamicsVelocity[cab.id] = cab.velocity
+            let targetStr: String
+            if let q = cab.queue.first {
+                targetStr = String(format: "%6d", q)
+            } else {
+                targetStr = "    --"
+            }
+            let state = dynamicsState(for: cab)
+            s += String(format: "  %-6@  %7.2f fl   %+6.3f fl/s   %+6.3f     %@   %@\n",
+                        dLabel as NSString,
+                        cab.position,
+                        cab.velocity,
+                        accel,
+                        targetStr,
+                        state)
+        }
+        lastDynamicsSampleAt = now
+
+        s += "\n"
+        s += String(format: "  Profile limits:  PAX  %.2f fl/s  / %.2f fl/s²    FRT  %.2f fl/s  / %.2f fl/s²\n",
+                    Sim.paxSpeed, Sim.paxAccel, Sim.freightSpeed, Sim.freightAccel)
+        return s
+    }
+
+    private func dynamicsState(for cab: Elevator) -> String {
+        if cab.doors == .opening || cab.doors == .closing { return "DOORS" }
+        if cab.doors == .open { return "PARKED" }
+        if cab.phaseTwoActive { return "PHASE-II" }
+        if cab.independentActive { return "INDEP" }
+        guard let target = cab.queue.first else {
+            return abs(cab.velocity) > 0.05 ? "STOPPING" : "IDLE"
+        }
+        let dy = Double(target) - cab.position
+        let stoppingDistance = (cab.velocity * cab.velocity) / (2 * cab.profile.travelAccel)
+        let cruise = abs(cab.velocity) >= cab.profile.travelFloorsPerSecond * 0.95
+        if abs(dy) <= stoppingDistance + 0.05 { return "DECEL" }
+        if cruise                              { return "CRUISE" }
+        return "ACCEL"
     }
 }

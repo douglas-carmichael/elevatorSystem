@@ -151,13 +151,51 @@ final class ElevatorWorld: ObservableObject {
         }
 
         guard let target = elev.queue.first else {
+            // No call queued -- bring the cab to a stop with the same
+            // acceleration ceiling the trapezoidal profile uses for
+            // travel, so a cancelled trip doesn't slam to zero
+            // instantaneously.
+            decelerateToStop(&elev, dt: dt)
             elev.direction = .idle
             return
         }
 
+        // Trapezoidal velocity profile. Target speed is the highest
+        // value that still lets us decelerate to zero by the time we
+        // reach the floor (using v² = 2 a s for the braking distance).
+        // Velocity changes are clamped to ±maxAccel * dt so each tick
+        // looks like a smooth motor command instead of a teleport.
         let dy = Double(target) - elev.position
-        if abs(dy) < 0.005 {
+        let maxSpeed = prof.travelFloorsPerSecond
+        let maxAccel = prof.travelAccel
+        let dirSign: Double = dy >= 0 ? 1 : -1
+        let absDistance = abs(dy)
+        let stoppingDistance = (elev.velocity * elev.velocity) / (2 * maxAccel)
+        let targetSpeedMag: Double
+        if absDistance > stoppingDistance {
+            // Still in the acceleration / cruise band -- aim for max.
+            targetSpeedMag = min(maxSpeed, sqrt(maxSpeed * maxSpeed))
+        } else {
+            // Inside the deceleration band -- pick the speed that lets
+            // us coast to a stop exactly at the floor.
+            targetSpeedMag = sqrt(2 * maxAccel * absDistance)
+        }
+        let targetVelocity = dirSign * targetSpeedMag
+        let dv = targetVelocity - elev.velocity
+        let maxDv = maxAccel * dt
+        elev.velocity += max(-maxDv, min(maxDv, dv))
+
+        // Integrate position.
+        elev.position += elev.velocity * dt
+
+        // Arrival detection: when we're close to the target and moving
+        // slowly enough, snap to the floor and open the doors. The
+        // velocity threshold prevents a tick from skipping past the
+        // arrival check.
+        if abs(elev.position - Double(target)) < 0.05,
+           abs(elev.velocity) < (maxAccel * dt * 1.5) {
             elev.position = Double(target)
+            elev.velocity = 0
             elev.queue.removeFirst()
             elev.doors = .opening
             elev.doorProgress = 0
@@ -165,13 +203,27 @@ final class ElevatorWorld: ObservableObject {
             return
         }
 
-        elev.direction = dy > 0 ? .up : .down
-        let step = prof.travelFloorsPerSecond * dt * (dy > 0 ? 1 : -1)
-        if abs(step) >= abs(dy) {
-            elev.position = Double(target)
+        // Set the published direction flag from the current velocity
+        // sign so the UI and SHOW QUEUE stay accurate during the
+        // accel / decel phases.
+        if elev.velocity > 0.01 {
+            elev.direction = .up
+        } else if elev.velocity < -0.01 {
+            elev.direction = .down
         } else {
-            elev.position += step
+            elev.direction = .idle
         }
+    }
+
+    private func decelerateToStop(_ elev: inout Elevator, dt: Double) {
+        let maxAccel = elev.profile.travelAccel
+        let maxDv = maxAccel * dt
+        if abs(elev.velocity) <= maxDv {
+            elev.velocity = 0
+        } else {
+            elev.velocity -= maxDv * (elev.velocity > 0 ? 1 : -1)
+        }
+        elev.position += elev.velocity * dt
     }
 
     func upsert(_ elev: Elevator) {

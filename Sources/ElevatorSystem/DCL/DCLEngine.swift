@@ -138,6 +138,13 @@ final class DCLEngine: ObservableObject {
     /// looks like a live system instead of a static snapshot.
     let sessionStart: Date = Date()
 
+    /// MONITOR DYNAMICS tracks the previous tick's velocity for each cab
+    /// so it can derive an acceleration figure from the delta against
+    /// the current frame -- avoids putting another piece of state on
+    /// every Elevator just for the LPD monitor utility.
+    var lastDynamicsVelocity: [UUID: Double] = [:]
+    var lastDynamicsSampleAt: Date = Date()
+
     var bootTime: Date { host.bootDate }
 
     init() {

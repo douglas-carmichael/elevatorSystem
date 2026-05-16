@@ -13,6 +13,16 @@ enum CabProfile: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Acceleration ceiling in floors / sec². Used by the trapezoidal
+    /// velocity profile in ElevatorWorld.advance() and surfaced by
+    /// MONITOR DYNAMICS.
+    var travelAccel: Double {
+        switch self {
+        case .pax:     return Sim.paxAccel
+        case .freight: return Sim.freightAccel
+        }
+    }
+
     var doorOpenDuration: Double {
         switch self {
         case .pax:     return Sim.paxDoorOpen
@@ -70,18 +80,23 @@ struct Elevator: Identifiable, Codable, Hashable {
     /// keeps its doors open at the current floor. Used for moving
     /// freight or VIP escort. Effectively a stronger form of /MANUAL.
     var independentActive: Bool = false
+    /// Current cab velocity in floors / second. Positive means going
+    /// up. Driven by the trapezoidal velocity profile in
+    /// ElevatorWorld.advance() and surfaced by MONITOR DYNAMICS.
+    var velocity: Double = 0
 
     enum CodingKeys: String, CodingKey {
         case id, label, ownerPeerId, automatic, profile, position, queue
         case doors, doorProgress, doorDwellRemaining, direction
-        case phaseTwoActive, independentActive
+        case phaseTwoActive, independentActive, velocity
     }
 
     init(id: UUID, label: String, ownerPeerId: String, automatic: Bool,
          profile: CabProfile, position: Double, queue: [Int],
          doors: DoorState, doorProgress: Double, doorDwellRemaining: Double,
          direction: Direction,
-         phaseTwoActive: Bool = false, independentActive: Bool = false) {
+         phaseTwoActive: Bool = false, independentActive: Bool = false,
+         velocity: Double = 0) {
         self.id = id
         self.label = label
         self.ownerPeerId = ownerPeerId
@@ -95,6 +110,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         self.direction = direction
         self.phaseTwoActive = phaseTwoActive
         self.independentActive = independentActive
+        self.velocity = velocity
     }
 
     init(from decoder: Decoder) throws {
@@ -110,12 +126,12 @@ struct Elevator: Identifiable, Codable, Hashable {
         doorProgress = try c.decode(Double.self, forKey: .doorProgress)
         doorDwellRemaining = try c.decode(Double.self, forKey: .doorDwellRemaining)
         direction = try c.decode(Direction.self, forKey: .direction)
-        // Safety-mode flags are optional on the wire so a peer running
-        // an older build whose Elevator struct didn't have them can
-        // still be decoded -- the cab just won't be in phase-two /
-        // independent service from our side.
+        // Safety / dynamics fields are optional on the wire so a peer
+        // running an older build whose Elevator struct didn't have
+        // them can still be decoded.
         phaseTwoActive = try c.decodeIfPresent(Bool.self, forKey: .phaseTwoActive) ?? false
         independentActive = try c.decodeIfPresent(Bool.self, forKey: .independentActive) ?? false
+        velocity = try c.decodeIfPresent(Double.self, forKey: .velocity) ?? 0
     }
 
     var nearestFloor: Int {

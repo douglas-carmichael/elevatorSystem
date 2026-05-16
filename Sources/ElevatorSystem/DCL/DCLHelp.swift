@@ -74,6 +74,7 @@ extension DCLEngine {
             s += "      LOCK           Distributed lock manager rates\n"
             s += "      CLUSTER        Per-node CPU/IO/memory summary\n"
             s += "      FCP            Files-11 XQP primitive rates\n"
+            s += "      DYNAMICS       Live cab dynamics (position / vel / accel / state) -- LPD\n"
             s += "      ALL_CLASSES    Concatenation of SYSTEM + IO + STATES\n"
             return s
         case matches(t, "ELEVATOR"):

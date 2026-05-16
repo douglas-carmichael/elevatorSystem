@@ -7,12 +7,14 @@ enum Sim {
 
     // Passenger cab profile
     static let paxSpeed: Double = 0.9
+    static let paxAccel: Double = 1.0     // floors / sec² ceiling
     static let paxDoorOpen: Double = 0.7
     static let paxDoorClose: Double = 0.7
     static let paxDoorDwell: Double = 2.8
 
     // Freight cab profile — slower travel, heavier doors, longer loading
     static let freightSpeed: Double = 0.5
+    static let freightAccel: Double = 0.6
     static let freightDoorOpen: Double = 1.4
     static let freightDoorClose: Double = 1.6
     static let freightDoorDwell: Double = 5.0

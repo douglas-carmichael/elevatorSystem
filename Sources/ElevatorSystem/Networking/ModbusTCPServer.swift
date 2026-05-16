@@ -453,6 +453,10 @@ final class ModbusClient {
                 return UInt16(c.queue.count)
             case 4:                                 // door progress %
                 return UInt16(c.doorProgress * 100.0)
+            case 5:                                 // velocity x 100 (signed)
+                let v = Int(c.velocity * 100.0)
+                let clamped = max(-32768, min(32767, v))
+                return UInt16(bitPattern: Int16(clamped))
             default:
                 return 0
             }
