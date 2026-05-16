@@ -12,6 +12,7 @@ enum Strings {
         add("window.control",       "Group Dispatcher",                    "Group Dispatcher")
         add("window.scene",         "Hoistway Synoptic",                   "Synoptique de gaine")
         add("window.dcl",           "DCL Terminal",                        "Terminal DCL")
+        add("window.dynamics",      "Dynamics",                            "Dynamiques")
 
         add("credits.title",        "CREDITS",                             "CRÉDITS")
         add("credits.dismiss",      "Click or press ESC to close",         "Cliquez ou appuyez ESC pour fermer")
@@ -56,7 +57,7 @@ enum Strings {
         add("status.ready",         "READY",                               "PRÊT")
         add("status.alarms",        "ALARMS",                              "ALARMES")
         add("status.alarms.normal", "NORMAL",                              "NORMAL")
-        add("status.alarms.summary","%d ACTIVE / %d UNACK",                "%d ACTIVES / %d NON ACQ.")
+        add("status.alarms.summary","%d ACT / %d UNACK",                   "%d ACT / %d N.ACQ")
         // Loanword in both languages -- consistent with TELNET / MODBUS
         // / MODE above. "RÉGULATION" (10 chars) was wider than its
         // column slot and pushed onto a second row at typical window
@@ -180,6 +181,10 @@ enum Strings {
                                      "cellule porte obstruée")
         add("modbus.reg.hallcalls",  "active hall-call count",
                                      "nb appels palier actifs")
+        add("modbus.reg.load",       "platform load (kg)",
+                                     "charge plateau (kg)")
+        add("modbus.reg.overload",   "cab over 110% rated load",
+                                     "cabine en surcharge (>110%)")
         add("help.k.esc",           "Close this overlay",                  "Fermer cette aide")
         add("help.dismiss",         "PRESS  ESC  TO DISMISS",              "APPUYEZ SUR ESC POUR FERMER")
         add("help.focus.hint",      "FOCUSED CAB",                         "CABINE FOCALISÉE")
@@ -245,7 +250,9 @@ enum Strings {
         add("alarm.msg.dispatchstall", "Queued cab failed to start",         "Cabine en file sans démarrage")
         add("alarm.msg.terminallimit","Terminal limit switch tripped",       "Fin de course terminal déclenché")
         add("alarm.msg.brakehold",  "Brake commanded while cab is moving",   "Frein commandé alors que la cabine bouge")
-        add("dcl.alarm.title",      "Elevator SCADA alarm log at %@",       "Journal des alarmes SCADA ascenseur à %@")
+        add("alarm.msg.overload",   "Cab load exceeds 110% of rated capacity", "Surcharge cabine : charge > 110% nominale")
+        add("alarm.msg.fullload",   "Cab at 80% load -- anti-nuisance armed",  "Cabine à 80% : anti-nuisance armée")
+        add("dcl.alarm.title",      "SCADA alarm log at %@",                "Journal des alarmes SCADA à %@")
         add("dcl.alarm.header",     "  ID    Time                         Severity   State    Source     Point          Message",
                                     "  ID    Heure                        Gravité    État     Source     Point          Message")
         add("dcl.alarm.none",       "  No alarms have been logged.",        "  Aucune alarme n'a été journalisée.")

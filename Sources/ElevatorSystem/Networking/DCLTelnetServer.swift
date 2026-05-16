@@ -199,7 +199,7 @@ final class TelnetSession {
                 Task { @MainActor in self.fireClose() }
                 return
             }
-            self.receiveLoop()
+            Task { @MainActor in self.receiveLoop() }
         }
     }
 

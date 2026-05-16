@@ -214,7 +214,14 @@ final class ElevatorWorld: ObservableObject {
         switch buildingMode {
         case .normal:
             clearAlarm(source: "SYS", point: "SAFETY_MODE")
-            clearAlarm(source: "PWR", point: "MAINS")
+            // PWR/MAINS is intentionally NOT auto-cleared here -- the
+            // SCADA panel's PWR button is a manual fault-injection
+            // toggle the operator drives during the demo, and the
+            // tick-rate auto-clear would race the click and make the
+            // button look broken. The alarm is raised automatically
+            // under emergencyPower (below); when normality returns
+            // it stays in the log until the operator acknowledges /
+            // clears it, which is the real SCADA contract anyway.
         case .fireRecall:
             raiseAlarm(source: "SYS",
                        point: "SAFETY_MODE",
@@ -252,6 +259,32 @@ final class ElevatorWorld: ObservableObject {
             sampleDispatchStallAlarm(for: cab, source: source, at: now)
             sampleTerminalLimitAlarm(for: cab, source: source)
             sampleBrakeHoldAlarm(for: cab, source: source)
+            sampleLoadCellAlarms(for: cab, source: source)
+        }
+    }
+
+    /// Raise FULL_LOAD (advisory) when the cab is above the 80%
+    /// anti-nuisance threshold so the dispatcher / auto-driver can
+    /// skip extra hall calls, and OVERLOAD (critical) when above 110%
+    /// of rated capacity -- which also latches the door-close
+    /// interlock in `advance()`.
+    private func sampleLoadCellAlarms(for cab: Elevator, source: String) {
+        let rated = cab.profile.ratedLoadKg
+        if cab.loadKg > rated * 1.10 {
+            raiseAlarm(source: source,
+                       point: "OVERLOAD",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.overload", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "OVERLOAD")
+        }
+        if cab.loadKg > rated * 0.80 {
+            raiseAlarm(source: source,
+                       point: "FULL_LOAD",
+                       severity: .advisory,
+                       message: Strings.lookup("alarm.msg.fullload", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "FULL_LOAD")
         }
     }
 
@@ -437,6 +470,12 @@ final class ElevatorWorld: ObservableObject {
                 elev.doorProgress = 1.0
                 elev.doors = .open
                 elev.doorDwellRemaining = prof.doorDwellDuration
+                // Cab just opened at a landing -- run the boarding /
+                // alighting model so the load cells show realistic
+                // fluctuation during the demo. Idempotent within a
+                // single open cycle (doors transition opening->open
+                // once per stop).
+                applyBoarding(&elev)
             }
             elev.direction = .idle
             elev.brakeEngaged = true
@@ -454,7 +493,19 @@ final class ElevatorWorld: ObservableObject {
             elev.doorDwellRemaining -= dt
             // Light-curtain / safety-edge: don't even start closing
             // while an obstruction is reported.
-            if elev.doorDwellRemaining <= 0 && !elev.doorObstructed {
+            //
+            // Overload interlock: ASME A17.1 §3.6 / EN 81-20 §5.12.1.2
+            // forbid a cab loaded above 110% of rated capacity from
+            // departing. The doors stay parked open with the cab
+            // buzzer expected -- here, the dwell countdown latches at
+            // zero so the door-held alarm timer in sampleDoorOpenAlarm
+            // begins ticking, the OVERLOAD alarm fires, and the cab
+            // can't leave the landing until weight drops.
+            let overloaded = elev.loadKg >
+                elev.profile.ratedLoadKg * 1.10
+            if elev.doorDwellRemaining <= 0 &&
+               !elev.doorObstructed &&
+               !overloaded {
                 elev.doors = .closing
                 elev.doorProgress = 0
             }
@@ -498,6 +549,20 @@ final class ElevatorWorld: ObservableObject {
             elev.velocity = 0
             elev.direction = .idle
             elev.brakeEngaged = true
+            return
+        }
+
+        // Active-alarm interlock: certain SCADA alarms must inhibit
+        // motion until the operator acknowledges and clears them.
+        // BRAKE / DOOR_ZONE on this cab keep the cab from moving (the
+        // brake is forced engaged); a system-wide CONTROLLER fault
+        // freezes every local cab. The cab decelerates to a stop and
+        // stays parked with the brake set -- this is what a real lift
+        // does when a safety chain link opens.
+        if motionInhibitedByAlarm(for: elev) {
+            decelerateToStop(&elev, dt: dt)
+            elev.direction = .idle
+            if abs(elev.velocity) < 0.01 { elev.brakeEngaged = true }
             return
         }
 
@@ -595,6 +660,56 @@ final class ElevatorWorld: ObservableObject {
             elev.direction = .down
         } else {
             elev.direction = .idle
+        }
+    }
+
+    /// Returns true if any active SCADA alarm should mechanically
+    /// prevent this cab from moving. The mapping is industry-typical:
+    ///
+    ///   * CAB <label> BRAKE     -- brake-contact fault: refuse to release
+    ///   * CAB <label> DOOR_ZONE -- door-zone sensor unreliable: hold
+    ///   * SYS CONTROLLER        -- controller watchdog: freeze every cab
+    ///
+    /// The operator clears the alarm via the SCADA panel or
+    /// `ACKNOWLEDGE ALARM ALL` in DCL once the upstream fault has been
+    /// addressed; the cab returns to service the next scan tick.
+    private func motionInhibitedByAlarm(for cab: Elevator) -> Bool {
+        let cabSource = "CAB \(displayLabel(for: cab))"
+        for alarm in alarmLog where alarm.isActive {
+            if alarm.source == "SYS" && alarm.point == "CONTROLLER" { return true }
+            if alarm.source == cabSource {
+                switch alarm.point {
+                case "BRAKE", "DOOR_ZONE": return true
+                default: break
+                }
+            }
+        }
+        return false
+    }
+
+    /// Cheap boarding / alighting model invoked once per door-open
+    /// cycle. Models lobby surge (more passengers join at floor 1 /
+    /// the recall floor) and per-stop turnover at other floors. The
+    /// numbers aren't a real building-traffic model -- they're enough
+    /// to drive realistic load-cell fluctuation, FULL_LOAD and
+    /// OVERLOAD alarms during the demo.
+    private func applyBoarding(_ elev: inout Elevator) {
+        let floor = Int(elev.position.rounded())
+        let isLobby = floor == recallFloor
+        switch elev.profile {
+        case .pax:
+            // 75 kg per "passenger". Lobby surge boards 1-4 people,
+            // alighting at upper floors is 0-3 people; net effect
+            // builds load on the way up and drains on the way back.
+            let boarders = isLobby ? Int.random(in: 1...4) : Int.random(in: 0...2)
+            let alighters = isLobby ? 0 : Int.random(in: 0...3)
+            let delta = Double(boarders - alighters) * 75.0
+            elev.loadKg = max(0, elev.loadKg + delta)
+        case .freight:
+            // Freight loads are chunkier and less frequent. ~80 kg
+            // per "tote" with bigger swings.
+            let delta = Double.random(in: -240...240)
+            elev.loadKg = max(0, elev.loadKg + delta)
         }
     }
 
@@ -821,25 +936,33 @@ final class ElevatorWorld: ObservableObject {
     /// must be re-issued through `allocateDestination` since the
     /// rider's destination is also required).
     @discardableResult
-    func registerHallCall(floor: Int, direction: Direction) -> HallCall? {
+    func registerHallCall(floor: Int, direction: Direction, allocate: Bool = true) -> HallCall? {
         guard direction == .up || direction == .down else { return nil }
         let f = max(Sim.firstFloor, min(Sim.lastFloor, floor))
         // Coalesce duplicates -- one riser button latches, one entry.
         if let existing = hallCalls.first(where: { $0.floor == f && $0.direction == direction }) {
             return existing
         }
+        let assigned = allocate ? allocateHallCall(floor: f, direction: direction) : nil
         let call = HallCall(id: UUID(),
                             sequence: nextHallCallSequence,
                             floor: f,
                             direction: direction,
                             createdAt: Date(),
-                            assignedCabId: allocateHallCall(floor: f, direction: direction))
+                            assignedCabId: assigned)
         nextHallCallSequence += 1
         hallCalls.insert(call, at: 0)
         if hallCalls.count > 40 {
             hallCalls.removeLast(hallCalls.count - 40)
         }
         return call
+    }
+
+    /// Remove a single hall call by id. Used by the LAMP_TEST diagnostic
+    /// to extinguish a test-induced lantern entry without dispatching
+    /// a cab.
+    func removeHallCall(id: UUID) {
+        hallCalls.removeAll { $0.id == id }
     }
 
     /// Pick the cab best suited to answer a hall call: lowest ETA,

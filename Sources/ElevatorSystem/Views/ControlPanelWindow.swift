@@ -48,7 +48,7 @@ struct ControlPanelWindow: View {
                     .transition(.opacity)
             }
         }
-        .frame(minWidth: 760, minHeight: 620)
+        .frame(minWidth: 920, minHeight: 620)
         .environment(\.colorScheme, .dark)
         .onAppear { ensureFocus() }
         .onChange(of: world.elevators.map(\.id)) { _ in ensureFocus() }
@@ -186,38 +186,43 @@ private struct StatusStrip: View {
     @EnvironmentObject var modbus: ModbusTCPServer
 
     var body: some View {
-        HStack(spacing: 28) {
-            StatusLine(label: language.t("status.you"),
-                       value: world.localPeerLabel,
-                       valueColor: RetroTheme.cyan)
-            StatusLine(label: language.t("status.peers"),
-                       value: peersValue,
-                       valueColor: network.peers.isEmpty ? RetroTheme.amberDim : RetroTheme.green)
-            StatusLine(label: language.t("status.elevators"),
-                       value: "\(world.elevators.count)",
-                       valueColor: RetroTheme.amberBright)
-            StatusLine(label: language.t("status.telnet"),
-                       value: telnetValue,
-                       valueColor: telnet.sessionCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
-            StatusLine(label: language.t("status.modbus"),
-                       value: modbusValue,
-                       valueColor: modbus.clientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
-            StatusLine(label: language.t("status.mode"),
-                       value: modeValue,
-                       valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
-            StatusLine(label: language.t("status.dispatch"),
-                       value: dispatchValue,
-                       valueColor: world.dispatchMode == .collective ? RetroTheme.green : RetroTheme.cyan)
-            StatusLine(label: language.t("status.alarms"),
-                       value: alarmValue,
-                       valueColor: alarmColor)
-            Spacer()
-            StatusLine(label: "STAT",
-                       value: language.t("status.ready"),
-                       valueColor: RetroTheme.green)
-            BlinkingCursor()
+        // Horizontal ScrollView keeps the strip on one line even when FR
+        // labels run wider than the window: the columns stay readable
+        // and any overflow scrolls instead of forcing the whole control
+        // panel to be sized to the worst-case localised label.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 18) {
+                StatusLine(label: language.t("status.you"),
+                           value: world.localPeerLabel,
+                           valueColor: RetroTheme.cyan)
+                StatusLine(label: language.t("status.peers"),
+                           value: peersValue,
+                           valueColor: network.peers.isEmpty ? RetroTheme.amberDim : RetroTheme.green)
+                StatusLine(label: language.t("status.elevators"),
+                           value: "\(world.elevators.count)",
+                           valueColor: RetroTheme.amberBright)
+                StatusLine(label: language.t("status.telnet"),
+                           value: telnetValue,
+                           valueColor: telnet.sessionCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
+                StatusLine(label: language.t("status.modbus"),
+                           value: modbusValue,
+                           valueColor: modbus.clientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
+                StatusLine(label: language.t("status.mode"),
+                           value: modeValue,
+                           valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
+                StatusLine(label: language.t("status.dispatch"),
+                           value: dispatchValue,
+                           valueColor: world.dispatchMode == .collective ? RetroTheme.green : RetroTheme.cyan)
+                StatusLine(label: language.t("status.alarms"),
+                           value: alarmValue,
+                           valueColor: alarmColor)
+                StatusLine(label: "STAT",
+                           value: language.t("status.ready"),
+                           valueColor: RetroTheme.green)
+                BlinkingCursor()
+            }
+            .padding(.horizontal, 6)
         }
-        .padding(.horizontal, 6)
     }
 
     private var peersValue: String {
@@ -390,10 +395,10 @@ private struct SCADAAlarmPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 0) {
                 header(language.t("alarm.col.id"), width: 42)
-                header(language.t("alarm.col.sev"), width: 76)
-                header(language.t("alarm.col.state"), width: 66)
-                header(language.t("alarm.col.source"), width: 76)
-                header(language.t("alarm.col.point"), width: 112)
+                header(language.t("alarm.col.sev"), width: 84)
+                header(language.t("alarm.col.state"), width: 88)
+                header(language.t("alarm.col.source"), width: 86)
+                header(language.t("alarm.col.point"), width: 120)
                 header(language.t("alarm.col.message"), width: nil)
             }
             HRule(RetroTheme.amberDim)
@@ -473,10 +478,10 @@ private struct AlarmRow: View {
     var body: some View {
         HStack(spacing: 0) {
             cell(String(format: "%04d", alarm.sequence), width: 42, color: RetroTheme.amberBright)
-            cell(localizedSeverity, width: 76, color: severityColor)
-            cell(localizedStatus, width: 66, color: alarm.isAcknowledged ? RetroTheme.green : RetroTheme.amberBright)
-            cell(alarm.source, width: 76, color: RetroTheme.cyan)
-            cell(alarm.point, width: 112, color: RetroTheme.amber)
+            cell(localizedSeverity, width: 84, color: severityColor)
+            cell(localizedStatus, width: 88, color: alarm.isAcknowledged ? RetroTheme.green : RetroTheme.amberBright)
+            cell(alarm.source, width: 86, color: RetroTheme.cyan)
+            cell(alarm.point, width: 120, color: RetroTheme.amber)
             Text(localizedMessage)
                 .font(RetroTheme.monoSm)
                 .foregroundColor(RetroTheme.amber)
@@ -534,6 +539,8 @@ private struct AlarmRow: View {
         case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return language.t("alarm.msg.dispatchstall")
         case Strings.lookup("alarm.msg.terminallimit", lang: .en): return language.t("alarm.msg.terminallimit")
         case Strings.lookup("alarm.msg.brakehold", lang: .en): return language.t("alarm.msg.brakehold")
+        case Strings.lookup("alarm.msg.overload", lang: .en): return language.t("alarm.msg.overload")
+        case Strings.lookup("alarm.msg.fullload", lang: .en): return language.t("alarm.msg.fullload")
         default: return alarm.message
         }
     }
@@ -778,6 +785,9 @@ private struct FooterBar: View {
             RetroButton(language.t("window.scene")) {
                 openWindow(id: "scene")
             }
+            RetroButton(language.t("window.dynamics")) {
+                openWindow(id: "dynamics")
+            }
             HStack(spacing: 6) {
                 Text("\(language.t("hint.lang")):")
                     .font(RetroTheme.monoSm)
@@ -934,6 +944,7 @@ private struct ModbusLegendOverlay: View {
                     row("24..31", language.t("modbus.reg.queue"))
                     row("32..39", language.t("modbus.reg.doorprog"))
                     row("40..47", language.t("modbus.reg.velocity"))
+                    row("48..55", language.t("modbus.reg.load"))
                     row("100",    language.t("modbus.reg.cabcount"))
                     row("102",    language.t("modbus.reg.bldgflrs"))
                     row("103",    language.t("modbus.reg.telnetmb"))
@@ -962,6 +973,7 @@ private struct ModbusLegendOverlay: View {
                     row("16..23", language.t("modbus.reg.dooropened"))
                     row("24..31", language.t("modbus.reg.brake"))
                     row("32..39", language.t("modbus.reg.obstructed"))
+                    row("40..47", language.t("modbus.reg.overload"))
 
                     Spacer().frame(height: 8)
                     Text(language.t("help.dismiss"))

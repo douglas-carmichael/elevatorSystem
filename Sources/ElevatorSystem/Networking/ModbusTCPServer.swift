@@ -26,6 +26,7 @@ import Network
 ///     16..23  Cab[0..7]  doors open (state == open)
 ///     24..31  Cab[0..7]  holding brake engaged
 ///     32..39  Cab[0..7]  door light-curtain obstructed
+///     40..47  Cab[0..7]  platform overload  (load > 110% rated)
 ///
 ///   Holding registers (16-bit, R/W) -- FC 03 read, FC 06 write:
 ///     0..7    Cab[0..7]  Profile      (0 = PAX,    1 = Freight)
@@ -38,6 +39,8 @@ import Network
 ///     16..23  Cab[0..7]  Door state   (0=closed, 1=opening, 2=open, 3=closing)
 ///     24..31  Cab[0..7]  Queue depth
 ///     32..39  Cab[0..7]  Door progress (0..100 percent)
+///     40..47  Cab[0..7]  Cab velocity x100 (signed Int16)
+///     48..55  Cab[0..7]  Platform load (kg)
 ///     100     Number of cabs registered
 ///     101     Number of remote peers connected
 ///     102     Building floor count (top floor)
@@ -219,18 +222,25 @@ final class ModbusClient {
                 Task { @MainActor in self.fireClose() }
                 return
             }
-            self.receiveLoop()
+            Task { @MainActor in self.receiveLoop() }
         }
     }
 
     /// MBAP header is 7 bytes; the `Length` field at offset 4-5 covers
     /// everything after the length field (Unit ID + PDU).
+    ///
+    /// `Data.removeFirst(_:)` advances the buffer's `startIndex` rather
+    /// than physically dropping bytes, so all reads here are anchored to
+    /// the current `startIndex`. `subdata(in:)` returns a fresh `Data`
+    /// (startIndex 0) so `handleFrame` can use absolute offsets safely.
     private func drainFrames() {
         while inboundBuffer.count >= 7 {
-            let length = (UInt16(inboundBuffer[4]) << 8) | UInt16(inboundBuffer[5])
+            let base = inboundBuffer.startIndex
+            let length = (UInt16(inboundBuffer[base + 4]) << 8)
+                       | UInt16(inboundBuffer[base + 5])
             let totalSize = 6 + Int(length)
             guard inboundBuffer.count >= totalSize else { return }
-            let frame = Data(inboundBuffer.prefix(totalSize))
+            let frame = inboundBuffer.subdata(in: base..<(base + totalSize))
             inboundBuffer.removeFirst(totalSize)
             handleFrame(frame)
         }
@@ -477,6 +487,7 @@ final class ModbusClient {
         case 2: return c.doors == .open
         case 3: return c.brakeEngaged
         case 4: return c.doorObstructed
+        case 5: return c.loadKg > c.profile.ratedLoadKg * 1.10
         default: return false
         }
     }
@@ -545,6 +556,8 @@ final class ModbusClient {
                 let v = Int(c.velocity * 100.0)
                 let clamped = max(-32768, min(32767, v))
                 return UInt16(bitPattern: Int16(clamped))
+            case 6:                                 // platform load (kg)
+                return UInt16(max(0, min(0xFFFF, Int(c.loadKg.rounded()))))
             default:
                 return 0
             }

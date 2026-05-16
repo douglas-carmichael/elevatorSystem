@@ -221,6 +221,14 @@ extension DCLEngine {
                 ? "%SET-I-INDEP, cab \(dLabel) in Independent Service -- doors held open, no group dispatch\n"
                 : "%SET-I-INDEPOFF, cab \(dLabel) returned to normal group dispatch\n"
         }
-        return "%SET-W-MISSQUAL, SET CAB needs /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, or /INDEPENDENT\n"
+        if let loadStr = cmd.qualifierValue("LOAD", min: 3),
+           let kg = Double(loadStr) {
+            let clamped = max(0, min(9999, kg))
+            _ = world.mutateLocal(cab.id) { $0.loadKg = clamped }
+            return String(format: "%%SET-I-LOAD, cab %@ platform load now %.0f kg (%.0f%% of rated)\n",
+                          dLabel, clamped,
+                          clamped / cab.profile.ratedLoadKg * 100.0)
+        }
+        return "%SET-W-MISSQUAL, SET CAB needs /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, /INDEPENDENT or /LOAD\n"
     }
 }

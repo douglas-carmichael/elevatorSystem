@@ -38,10 +38,41 @@ extension DCLEngine {
         case matches(what, "AUDIT",       min: 3): return showAudit()
         case matches(what, "DIAGNOSTICS", min: 4): return showDiagnostics()
         case matches(what, "CALLS",       min: 4): return showCalls()
+        case matches(what, "LOAD"):                return showLoad()
         default:
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
         }
+    }
+
+    /// SHOW LOAD -- per-cab platform load cell readout. Real systems
+    /// pull this from a 4-wire load cell at the cab platform isolation
+    /// pads; here it's the value driven by the boarding model in
+    /// ElevatorWorld and surfaced via Modbus IR 48..55 and DI 40..47.
+    func showLoad() -> String {
+        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
+        var s = "\n  Cab platform load cells -- \(stamp(Date()))\n\n"
+        s += "    Cab        Load (kg)   Rated   Pct      State\n"
+        s += "    ---------  ---------   -----   -----    --------\n"
+        let cabs = world.sortedElevators
+        if cabs.isEmpty {
+            s += "    (no cabs registered)\n"
+            return s
+        }
+        for cab in cabs {
+            let label = world.displayLabel(for: cab)
+                .padding(toLength: 9, withPad: " ", startingAt: 0)
+            let rated = cab.profile.ratedLoadKg
+            let pct = cab.loadKg / rated * 100.0
+            let state: String
+            if pct > 110 { state = "OVERLOAD" }
+            else if pct > 80 { state = "FULL" }
+            else if pct < 5 { state = "EMPTY" }
+            else { state = "NOMINAL" }
+            s += String(format: "    %@  %7.0f     %5.0f   %5.1f%%   %@\n",
+                        label, cab.loadKg, rated, pct, state)
+        }
+        return s
     }
 
     /// SHOW CALLS -- lists currently latched landing-fixture (hall)
@@ -120,11 +151,14 @@ extension DCLEngine {
         }
         for alarm in alarms.prefix(40) {
             let id = String(format: "%04d", alarm.sequence)
+            // stamp() returns 23 chars ("dd-MMM-yyyy HH:mm:ss.SS"); the
+            // Time column dashes reserve 27. Pad so Severity lines up.
+            let time = stamp(alarm.raisedAt).padding(toLength: 27, withPad: " ", startingAt: 0)
             let sev = alarmSeverityLabel(alarm.severity).padding(toLength: 9, withPad: " ", startingAt: 0)
             let state = alarmStatusLabel(alarm).padding(toLength: 7, withPad: " ", startingAt: 0)
             let source = alarm.source.padding(toLength: 9, withPad: " ", startingAt: 0)
             let point = alarm.point.padding(toLength: 13, withPad: " ", startingAt: 0)
-            s += "  \(id)  \(stamp(alarm.raisedAt))  \(sev)  \(state)  \(source)  \(point)  \(alarmMessage(alarm.message))\n"
+            s += "  \(id)  \(time)  \(sev)  \(state)  \(source)  \(point)  \(alarmMessage(alarm.message))\n"
         }
         s += "\n" + tr("dcl.alarm.ackhint") + "\n"
         return s
@@ -160,6 +194,8 @@ extension DCLEngine {
         case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return tr("alarm.msg.dispatchstall")
         case Strings.lookup("alarm.msg.terminallimit", lang: .en): return tr("alarm.msg.terminallimit")
         case Strings.lookup("alarm.msg.brakehold", lang: .en): return tr("alarm.msg.brakehold")
+        case Strings.lookup("alarm.msg.overload", lang: .en): return tr("alarm.msg.overload")
+        case Strings.lookup("alarm.msg.fullload", lang: .en): return tr("alarm.msg.fullload")
         default: return message
         }
     }

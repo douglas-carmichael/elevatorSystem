@@ -43,6 +43,18 @@ enum CabProfile: String, Codable, CaseIterable, Identifiable {
         case .freight: return Sim.freightDoorDwell
         }
     }
+
+    /// Rated load capacity in kg. The cab platform load cells (typically
+    /// strain-gauge bridges under the floor isolation pads) report
+    /// against this baseline; the dispatcher uses the 80% threshold for
+    /// anti-nuisance ("FULL LOAD") and the 110% threshold for the
+    /// overload interlock that forbids door-close per ASME A17.1 §3.6.
+    var ratedLoadKg: Double {
+        switch self {
+        case .pax:     return 1000     // ~13 passengers @ 75 kg avg
+        case .freight: return 2000
+        }
+    }
 }
 
 enum DoorState: String, Codable, CaseIterable {
@@ -104,12 +116,18 @@ struct Elevator: Identifiable, Codable, Hashable {
     /// detects an obstruction reverses to .opening and re-arms the
     /// dwell. Cleared automatically once the obstruction is gone.
     var doorObstructed: Bool = false
+    /// Current cab platform load in kilograms (passengers + freight,
+    /// excluding the tare weight of the empty cab). Driven by the
+    /// boarding model in ElevatorWorld and overridable from DCL via
+    /// `SET CAB <label> /LOAD=<kg>`. Reported by the diagnostic
+    /// weight-cal test and by Modbus IR 48..55.
+    var loadKg: Double = 0
 
     enum CodingKeys: String, CodingKey {
         case id, label, ownerPeerId, automatic, profile, position, queue
         case doors, doorProgress, doorDwellRemaining, direction
         case phaseTwoActive, independentActive, velocity
-        case brakeEngaged, doorObstructed
+        case brakeEngaged, doorObstructed, loadKg
     }
 
     init(id: UUID, label: String, ownerPeerId: String, automatic: Bool,
@@ -118,7 +136,8 @@ struct Elevator: Identifiable, Codable, Hashable {
          direction: Direction,
          phaseTwoActive: Bool = false, independentActive: Bool = false,
          velocity: Double = 0,
-         brakeEngaged: Bool = true, doorObstructed: Bool = false) {
+         brakeEngaged: Bool = true, doorObstructed: Bool = false,
+         loadKg: Double = 0) {
         self.id = id
         self.label = label
         self.ownerPeerId = ownerPeerId
@@ -135,6 +154,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         self.velocity = velocity
         self.brakeEngaged = brakeEngaged
         self.doorObstructed = doorObstructed
+        self.loadKg = loadKg
     }
 
     init(from decoder: Decoder) throws {
@@ -158,6 +178,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         velocity = try c.decodeIfPresent(Double.self, forKey: .velocity) ?? 0
         brakeEngaged = try c.decodeIfPresent(Bool.self, forKey: .brakeEngaged) ?? true
         doorObstructed = try c.decodeIfPresent(Bool.self, forKey: .doorObstructed) ?? false
+        loadKg = try c.decodeIfPresent(Double.self, forKey: .loadKg) ?? 0
     }
 
     var nearestFloor: Int {

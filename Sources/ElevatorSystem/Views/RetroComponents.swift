@@ -86,9 +86,13 @@ struct StatusLine: View {
         HStack(spacing: 6) {
             Text("\(label):")
                 .foregroundColor(RetroTheme.amberDim)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
             Text(value)
                 .foregroundColor(valueColor)
                 .retroGlow()
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .font(RetroTheme.mono)
     }
