@@ -290,41 +290,63 @@ extension DCLEngine {
     /// control bytes for Enter / Ctrl-Y.
     func handleDiagnosticMenuKey(_ bytes: [UInt8]) {
         guard case .diagnosticMenu = liveMode else { return }
-        // ESC ESC -- alternative exit for users whose tty layer eats
-        // ^Y / ^C (e.g. nc-from-macOS-terminal).
-        if bytes.count >= 2, bytes[0] == 0x1B, bytes[1] == 0x1B {
-            diagnosticMenuExit()
-            return
-        }
-        // Arrow keys arrive as ESC [ A (up), ESC [ B (down).
-        if bytes.count == 3, bytes[0] == 0x1B, bytes[1] == 0x5B {
-            switch bytes[2] {
-            case 0x41:      // up
-                if diagMenuSelection > 0 { diagMenuSelection -= 1 }
-                refreshDiagnosticMenu()
-            case 0x42:      // down
-                if diagMenuSelection < diagMenuItems.count - 1 { diagMenuSelection += 1 }
-                refreshDiagnosticMenu()
+        // The byte array may carry multiple keystrokes batched together
+        // (especially over a telnet connection where the user holds an
+        // arrow key down), so parse the stream rather than insisting on
+        // bytes.count == 3 for a single arrow-key sequence -- the strict
+        // check used to silently drop all the keys after the first.
+        var i = 0
+        while i < bytes.count {
+            let b = bytes[i]
+            // ESC ESC -- alternative exit for users whose tty layer eats
+            // ^Y / ^C (e.g. nc-from-macOS-terminal).
+            if b == 0x1B, i + 1 < bytes.count, bytes[i + 1] == 0x1B {
+                diagnosticMenuExit()
+                return
+            }
+            // CSI sequence: ESC [ <params>* <final 0x40...0x7E>
+            if b == 0x1B, i + 1 < bytes.count, bytes[i + 1] == 0x5B {
+                var j = i + 2
+                while j < bytes.count, !((0x40...0x7E).contains(bytes[j])) {
+                    j += 1
+                }
+                if j < bytes.count {
+                    switch bytes[j] {
+                    case 0x41:                          // A - Up
+                        if diagMenuSelection > 0 { diagMenuSelection -= 1 }
+                    case 0x42:                          // B - Down
+                        if diagMenuSelection < diagMenuItems.count - 1 {
+                            diagMenuSelection += 1
+                        }
+                    default:
+                        break
+                    }
+                    refreshDiagnosticMenu()
+                    i = j + 1
+                    continue
+                } else {
+                    break       // incomplete escape -- drop the tail
+                }
+            }
+            switch b {
+            case 0x0D, 0x0A:                            // Enter
+                let chosen = diagMenuItems[diagMenuSelection]
+                // Leave the menu but stay in live-screen mode -- the
+                // test utility we hand off to will repaint the same alt
+                // buffer. Mark the run so stopMonitor pops back here
+                // instead of the DCL prompt when the operator dismisses
+                // the finished test.
+                liveMode = .none
+                diagInvokedFromMenu = true
+                chosen.runner()
+                return
+            case 0x03, 0x19:                            // Ctrl-C / Ctrl-Y
+                diagnosticMenuExit()
+                return
             default:
                 break
             }
-            return
-        }
-        guard let b = bytes.first else { return }
-        switch b {
-        case 0x0D, 0x0A:                                // Enter
-            let chosen = diagMenuItems[diagMenuSelection]
-            // Leave the menu but stay in live-screen mode -- the test
-            // utility we hand off to will repaint the same alt buffer.
-            // Mark the run so stopMonitor pops back here instead of the
-            // DCL prompt when the operator dismisses the finished test.
-            liveMode = .none
-            diagInvokedFromMenu = true
-            chosen.runner()
-        case 0x03, 0x19:                                // Ctrl-C / Ctrl-Y
-            diagnosticMenuExit()
-        default:
-            break
+            i += 1
         }
     }
 

@@ -123,8 +123,8 @@ enum Strings {
                                     "Sélection des Tests de Diagnostic")
         add("diag.menu.copyright",  "Copyright (c) 1985-2026 Levage & Portes Dauphiné S.A. All rights reserved.",
                                     "Copyright (c) 1985-2026 Levage & Portes Dauphiné S.A. Tous droits réservés.")
-        add("diag.menu.nav",        "UP / DOWN to navigate    ENTER to run    Ctrl/Y or ESC ESC to exit",
-                                    "HAUT / BAS pour naviguer    ENTRÉE pour exécuter    Ctrl/Y ou ESC ESC pour quitter")
+        add("diag.menu.nav",        "UP/DOWN navigate    ENTER run    Ctrl/Y or ESC ESC exit",
+                                    "HAUT/BAS naviguer    ENTRÉE exécuter    Ctrl/Y ou ESC ESC quitter")
 
         // Status words (column 3 of every test row).
         add("diag.status.pass",     "PASS",                                "RÉUSSI")
