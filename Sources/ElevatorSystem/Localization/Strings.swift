@@ -113,8 +113,8 @@ enum Strings {
         add("diag.complete",        "Complete -- %d/%d steps",             "Terminé -- %d/%d étapes")
         add("diag.allpass",         "ALL PASS",                            "TOUT RÉUSSI")
         add("diag.seeresults",      "see results",                         "voir résultats")
-        add("diag.abort.hint",      "Press  Ctrl/Y  to abort",             "Appuyez sur Ctrl/Y pour annuler")
-        add("diag.exit.hint",       "Press  Ctrl/Y  to exit",              "Appuyez sur Ctrl/Y pour quitter")
+        add("diag.abort.hint",      "Press  Ctrl/Y  or  ESC ESC  to abort", "Appuyez sur Ctrl/Y ou ESC ESC pour annuler")
+        add("diag.exit.hint",       "Press  Ctrl/Y  or  ESC ESC  to exit",  "Appuyez sur Ctrl/Y ou ESC ESC pour quitter")
         add("diag.col.cab",         "Cab     Test                              Reading        Status",
                                     "Cabine  Test                              Mesure         Statut")
         add("diag.col.floor",       "Floor   Test                              Reading        Status",
@@ -123,8 +123,8 @@ enum Strings {
                                     "Sélection des Tests de Diagnostic")
         add("diag.menu.copyright",  "Copyright (c) 1985-2026 Levage & Portes Dauphiné S.A. All rights reserved.",
                                     "Copyright (c) 1985-2026 Levage & Portes Dauphiné S.A. Tous droits réservés.")
-        add("diag.menu.nav",        "UP / DOWN to navigate    ENTER to run    Ctrl/Y to exit",
-                                    "HAUT / BAS pour naviguer    ENTRÉE pour exécuter    Ctrl/Y pour quitter")
+        add("diag.menu.nav",        "UP / DOWN to navigate    ENTER to run    Ctrl/Y or ESC ESC to exit",
+                                    "HAUT / BAS pour naviguer    ENTRÉE pour exécuter    Ctrl/Y ou ESC ESC pour quitter")
 
         // Status words (column 3 of every test row).
         add("diag.status.pass",     "PASS",                                "RÉUSSI")

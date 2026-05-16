@@ -290,6 +290,12 @@ extension DCLEngine {
     /// control bytes for Enter / Ctrl-Y.
     func handleDiagnosticMenuKey(_ bytes: [UInt8]) {
         guard case .diagnosticMenu = liveMode else { return }
+        // ESC ESC -- alternative exit for users whose tty layer eats
+        // ^Y / ^C (e.g. nc-from-macOS-terminal).
+        if bytes.count >= 2, bytes[0] == 0x1B, bytes[1] == 0x1B {
+            diagnosticMenuExit()
+            return
+        }
         // Arrow keys arrive as ESC [ A (up), ESC [ B (down).
         if bytes.count == 3, bytes[0] == 0x1B, bytes[1] == 0x5B {
             switch bytes[2] {
@@ -316,16 +322,20 @@ extension DCLEngine {
             diagInvokedFromMenu = true
             chosen.runner()
         case 0x03, 0x19:                                // Ctrl-C / Ctrl-Y
-            // Drop the menu without the "MONITOR was interrupted"
-            // message stopMonitor would print -- the menu was never a
-            // monitor session in the first place.
-            liveTimer?.invalidate()
-            liveTimer = nil
-            liveMode = .none
-            exitLiveScreen()
-            out(prompt)
+            diagnosticMenuExit()
         default:
             break
         }
+    }
+
+    private func diagnosticMenuExit() {
+        // Drop the menu without the "MONITOR was interrupted"
+        // message stopMonitor would print -- the menu was never a
+        // monitor session in the first place.
+        liveTimer?.invalidate()
+        liveTimer = nil
+        liveMode = .none
+        exitLiveScreen()
+        out(prompt)
     }
 }

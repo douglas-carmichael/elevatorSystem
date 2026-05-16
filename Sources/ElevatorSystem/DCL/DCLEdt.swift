@@ -410,8 +410,10 @@ extension DCLEngine {
             s += "\u{1B}[\(vrow + 2);1H\(lineText)\u{1B}[K"
         }
 
-        // Hint bar
-        let hint = " ^Z save+exit   ^Y discard   PgUp / PgDn   Arrows: move"
+        // Hint bar -- ^Z and ^Y are the canonical EDT bindings, but the
+        // tty driver on macOS eats them when the user connects via nc,
+        // so we publish the ^X / ESC ESC alternatives too.
+        let hint = " ^Z/^X save   ^Y / ESC ESC discard   PgUp/PgDn   Arrows: move"
             .padding(toLength: width, withPad: " ", startingAt: 0)
         s += "\u{1B}[\(hintRow);1H\u{1B}[7m\(hint)\u{1B}[27m"
 
@@ -431,6 +433,15 @@ extension DCLEngine {
         var i = 0
         while i < bytes.count {
             let b = bytes[i]
+            // ESC ESC: alternative discard-and-exit gesture for users
+            // whose tty driver eats ^Y / ^C / ^Z before they can reach
+            // us (common when connecting via `nc localhost 2323` from a
+            // macOS terminal -- DSUSP / INTR / SUSP get consumed by the
+            // local line discipline).
+            if b == 0x1B, i + 1 < bytes.count, bytes[i + 1] == 0x1B {
+                screenEditorDiscardAndExit()
+                return
+            }
             // CSI sequence (ESC [ ... <final 0x40...0x7E>)
             if b == 0x1B, i + 1 < bytes.count, bytes[i + 1] == 0x5B {
                 var j = i + 2
@@ -449,7 +460,7 @@ extension DCLEngine {
                 }
             }
             switch b {
-            case 0x1A:                                  // Ctrl-Z: save + exit
+            case 0x1A, 0x18:                            // Ctrl-Z / Ctrl-X: save + exit
                 screenEditorSaveAndExit()
                 return
             case 0x03, 0x19:                            // Ctrl-C / Ctrl-Y: discard

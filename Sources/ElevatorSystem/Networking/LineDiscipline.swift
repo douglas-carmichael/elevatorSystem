@@ -60,7 +60,22 @@ final class LineDiscipline {
         for b in bytes {
             switch escState {
             case .sawESC:
-                if b == 0x5B { escState = .inCSI } else { escState = .normal }
+                if b == 0x5B {
+                    escState = .inCSI
+                } else if b == 0x1B {
+                    // ESC ESC: an alternative interrupt gesture for
+                    // users whose tty driver eats ^Y / ^C / ^Z (DSUSP /
+                    // INTR / SUSP -- a common problem when connecting
+                    // via `nc localhost 2323` from a macOS terminal,
+                    // where the local tty layer intercepts those bytes
+                    // before nc forwards them to us).
+                    escState = .normal
+                    if dcl.liveActive {
+                        dcl.stopMonitor(interrupt: true)
+                    }
+                } else {
+                    escState = .normal
+                }
                 continue
             case .inCSI:
                 if (0x40...0x7E).contains(b) {

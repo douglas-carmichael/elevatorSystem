@@ -104,7 +104,7 @@ extension DCLEngine {
         s += "\n" + String(repeating: "-", count: 76) + "\n"
         s += "  From: \(stamp(monitorStartedAt))   To: \(stamp(now))\n"
         s += "  Elapsed: \(elapsed)   Interval: \(Int(monitorIntervalSec))s\n"
-        s += "  Press  Ctrl/Y  to interrupt the request and return to the DCL prompt.\n"
+        s += "  Press  Ctrl/Y  or  ESC ESC  to interrupt and return to the DCL prompt.\n"
         // Full clear (CSI 2 J) + home (CSI H) before each frame is what
         // real SMG$ emits and is the only sequence that reliably wipes
         // the previous refresh on terminals whose row count we don't
