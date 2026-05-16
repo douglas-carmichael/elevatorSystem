@@ -40,6 +40,10 @@ enum Strings {
         add("status.peers.nodes",   "NODES",                               "NŒUDS")
         add("status.discovering",   "SCANNING NETWORK...",                 "ANALYSE DU RÉSEAU...")
         add("status.elevators",     "CABS",                                "CABINES")
+        add("status.telnet",        "TELNET",                              "TELNET")
+        add("status.telnet.none",   "NONE",                                "AUCUNE")
+        add("status.telnet.one",    "1 SESSION",                           "1 SESSION")
+        add("status.telnet.many",   "%d SESSIONS",                         "%d SESSIONS")
         add("status.you",           "NODE",                                "NŒUD")
         add("status.ready",         "READY",                               "PRÊT")
 

@@ -169,6 +169,7 @@ private struct StatusStrip: View {
     @EnvironmentObject var world: ElevatorWorld
     @EnvironmentObject var language: AppLanguage
     @EnvironmentObject var network: PeerNetwork
+    @EnvironmentObject var telnet: DCLTelnetServer
 
     var body: some View {
         HStack(spacing: 28) {
@@ -181,6 +182,9 @@ private struct StatusStrip: View {
             StatusLine(label: language.t("status.elevators"),
                        value: "\(world.elevators.count)",
                        valueColor: RetroTheme.amberBright)
+            StatusLine(label: language.t("status.telnet"),
+                       value: telnetValue,
+                       valueColor: telnet.sessionCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
             Spacer()
             StatusLine(label: "STAT",
                        value: language.t("status.ready"),
@@ -196,6 +200,15 @@ private struct StatusStrip: View {
         case 0:  return language.t("status.peers.none")
         case 1:  return "1 \(language.t("status.peers.node"))"
         default: return "\(count) \(language.t("status.peers.nodes"))"
+        }
+    }
+
+    private var telnetValue: String {
+        let count = telnet.sessionCount
+        switch count {
+        case 0:  return language.t("status.telnet.none")
+        case 1:  return language.t("status.telnet.one")
+        default: return String(format: language.t("status.telnet.many"), count)
         }
     }
 }

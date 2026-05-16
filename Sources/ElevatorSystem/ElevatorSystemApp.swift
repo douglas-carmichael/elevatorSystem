@@ -33,6 +33,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(world)
                 .environmentObject(network)
                 .environmentObject(automation)
+                .environmentObject(telnet)
                 .onAppear { bootstrap() }
         }
         .windowResizability(.contentMinSize)

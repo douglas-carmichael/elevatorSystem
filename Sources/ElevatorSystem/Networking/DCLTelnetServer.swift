@@ -17,6 +17,9 @@ final class DCLTelnetServer: ObservableObject {
     /// Port the listener is currently bound to, or `nil` until it has
     /// successfully entered the `.ready` state.
     @Published private(set) var port: UInt16?
+    /// Number of accepted telnet sessions currently alive. Drives the
+    /// "TELNET" indicator in the Group Dispatcher status strip.
+    @Published private(set) var sessionCount: Int = 0
 
     private weak var world: ElevatorWorld?
     private weak var network: PeerNetwork?
@@ -25,7 +28,9 @@ final class DCLTelnetServer: ObservableObject {
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "net.dcarmichael.elevator.telnet")
-    private var sessions: [ObjectIdentifier: TelnetSession] = [:]
+    private var sessions: [ObjectIdentifier: TelnetSession] = [:] {
+        didSet { sessionCount = sessions.count }
+    }
 
     static let defaultPort: UInt16 = 2323
 
