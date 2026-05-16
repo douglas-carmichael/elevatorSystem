@@ -463,6 +463,13 @@ final class ModbusClient {
         case 102: return UInt16(Sim.lastFloor)
         case 103: return UInt16(telnet?.sessionCount ?? 0)
         case 104: return UInt16(modbusServer?.clientCount ?? 0)
+        case 105:                                   // Building mode
+            switch world?.buildingMode {
+            case .fireRecall:     return 1
+            case .emergencyPower: return 2
+            default:              return 0
+            }
+        case 106: return UInt16(world?.recallFloor ?? Sim.firstFloor)
         default:  return 0
         }
     }

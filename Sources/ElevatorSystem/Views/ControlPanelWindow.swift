@@ -189,6 +189,9 @@ private struct StatusStrip: View {
             StatusLine(label: language.t("status.modbus"),
                        value: modbusValue,
                        valueColor: modbus.clientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
+            StatusLine(label: language.t("status.mode"),
+                       value: modeValue,
+                       valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
             Spacer()
             StatusLine(label: "STAT",
                        value: language.t("status.ready"),
@@ -222,6 +225,14 @@ private struct StatusStrip: View {
         case 0:  return language.t("status.modbus.none")
         case 1:  return language.t("status.modbus.one")
         default: return String(format: language.t("status.modbus.many"), count)
+        }
+    }
+
+    private var modeValue: String {
+        switch world.buildingMode {
+        case .normal:         return language.t("status.mode.normal")
+        case .fireRecall:     return language.t("status.mode.fire")
+        case .emergencyPower: return language.t("status.mode.epo")
         }
     }
 }

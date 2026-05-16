@@ -48,6 +48,10 @@ enum Strings {
         add("status.modbus.none",   "NONE",                                "AUCUN")
         add("status.modbus.one",    "1 CLIENT",                            "1 CLIENT")
         add("status.modbus.many",   "%d CLIENTS",                          "%d CLIENTS")
+        add("status.mode",          "MODE",                                "MODE")
+        add("status.mode.normal",   "NORMAL",                              "NORMAL")
+        add("status.mode.fire",     "FIRE PHASE I",                        "INCENDIE PHASE I")
+        add("status.mode.epo",      "EMERGENCY POWER",                     "ALIM. SECOURS")
         add("status.you",           "NODE",                                "NŒUD")
         add("status.ready",         "READY",                               "PRÊT")
 

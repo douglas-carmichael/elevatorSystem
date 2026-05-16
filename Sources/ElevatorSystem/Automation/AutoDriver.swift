@@ -105,6 +105,21 @@ final class AutoDriver: ObservableObject {
         let now = Date()
         for elev in world.elevators where autoElevatorIds.contains(elev.id) {
             guard elev.queue.isEmpty, elev.doors == .closed else { continue }
+            // Real elevator code (ASME A17.1 / EN 81): the auto-driver
+            // stands down whenever the building is in Phase I Fire
+            // Recall or Emergency Power Operation, except for the cab
+            // designated as the EPO survivor. Phase II and Independent
+            // Service are per-cab overrides that disable auto-dispatch
+            // for that cab only.
+            switch world.buildingMode {
+            case .fireRecall:
+                continue
+            case .emergencyPower:
+                if elev.id != world.epoCabId { continue }
+            case .normal:
+                break
+            }
+            if elev.phaseTwoActive || elev.independentActive { continue }
             let due = nextDecisionAt[elev.id] ?? now
             if now >= due {
                 var nextFloor: Int

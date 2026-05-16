@@ -457,7 +457,33 @@ extension DCLEngine {
                     (upS / 60) % 60, upS % 60, (upS * 7) % 100,
                     upS / 4, upS / 8, upS / 2)
         s += "  Connect time: \(uptimeString(from: bootTime, to: Date()))\n"
+        s += "  Building mode: \(buildingModeStatusLine())\n"
+        // Per-cab safety overrides (only shown when any cab is non-normal).
+        if let cabs = world?.elevators,
+           cabs.contains(where: { $0.phaseTwoActive || $0.independentActive }) {
+            for cab in cabs where cab.phaseTwoActive || cab.independentActive {
+                var flags: [String] = []
+                if cab.phaseTwoActive { flags.append("PHASE-II") }
+                if cab.independentActive { flags.append("INDEP-SERVICE") }
+                let dLabel = world?.displayLabel(for: cab) ?? cab.label
+                s += "    Cab \(dLabel): \(flags.joined(separator: " + "))\n"
+            }
+        }
         return s
+    }
+
+    private func buildingModeStatusLine() -> String {
+        guard let world else { return "NORMAL" }
+        switch world.buildingMode {
+        case .normal:
+            return "NORMAL"
+        case .fireRecall:
+            return "PHASE I FIRE RECALL  (recall floor: \(world.recallFloor))"
+        case .emergencyPower:
+            let surv = world.epoCabId.flatMap { id in world.elevators.first(where: { $0.id == id }) }
+            let label = surv.map { world.displayLabel(for: $0) } ?? "(none)"
+            return "EMERGENCY POWER  (survivor: \(label))"
+        }
     }
 
     func showLicense() -> String {

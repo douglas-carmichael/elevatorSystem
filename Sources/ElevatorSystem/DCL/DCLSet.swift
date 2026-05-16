@@ -15,9 +15,62 @@ extension DCLEngine {
         case matches(what, "PASSWORD", min: 4): return setPassword()
         case matches(what, "PROCESS", min: 4):  return setProcess(cmd)
         case matches(what, "CAB"):              return setCab(cmd)
+        case matches(what, "BUILDING", min: 4): return setBuilding(cmd)
         default:
             return noPriv("SET \(what)")
         }
+    }
+
+    /// SET BUILDING /FIRE_RECALL=ON|OFF [/FLOOR=n]
+    /// SET BUILDING /EPO=ON|OFF [/CAB=Lxx]
+    /// SET BUILDING /NORMAL
+    ///
+    /// Toggles building-wide safety modes (Phase I Fire Service Recall
+    /// and Emergency Power Operation). Phase I cancels every cab's
+    /// queue, sends each cab to the recall floor, and holds doors
+    /// open. EPO does the same for every cab EXCEPT the designated
+    /// survivor, which keeps running on backup power.
+    func setBuilding(_ cmd: Parsed) -> String {
+        guard let world else { return "%CTRL-E-NOWORLD, no world\n" }
+        if cmd.hasQualifier("NORMAL", min: 3) {
+            world.buildingMode = .normal
+            world.epoCabId = nil
+            return "%CTRL-S-MODE, building returned to normal operation\n"
+        }
+        if let fire = cmd.qualifierValue("FIRE_RECALL", min: 4)
+                        ?? cmd.qualifierValue("FIRE", min: 4) {
+            if let floorStr = cmd.qualifierValue("FLOOR", min: 3),
+               let floor = Int(floorStr) {
+                world.recallFloor = max(Sim.firstFloor, min(Sim.lastFloor, floor))
+            }
+            if fire.uppercased() == "ON" {
+                world.buildingMode = .fireRecall
+                return "%CTRL-W-FIRERECALL, Phase I Fire Service active -- all cabs recall to floor \(world.recallFloor)\n"
+            } else {
+                world.buildingMode = .normal
+                world.epoCabId = nil
+                return "%CTRL-S-FIRERESET, Phase I Fire Service released\n"
+            }
+        }
+        if let epo = cmd.qualifierValue("EPO", min: 3) {
+            if epo.uppercased() == "ON" {
+                if let cabLabel = cmd.qualifierValue("CAB", min: 3) {
+                    let cabs = world.elevators
+                    if let cab = cabs.first(where: { world.displayLabel(for: $0).uppercased() == cabLabel.uppercased() || $0.label.uppercased() == cabLabel.uppercased() }) {
+                        world.epoCabId = cab.id
+                    }
+                }
+                world.buildingMode = .emergencyPower
+                let surv = world.epoCabId.flatMap { id in world.elevators.first(where: { $0.id == id }) }
+                let survLabel = surv.map { world.displayLabel(for: $0) } ?? "(none)"
+                return "%CTRL-W-EPO, Emergency Power Operation -- only cab \(survLabel) remains on backup\n"
+            } else {
+                world.buildingMode = .normal
+                world.epoCabId = nil
+                return "%CTRL-S-EPORESET, Emergency Power Operation released\n"
+            }
+        }
+        return "%DCL-W-MISSQUAL, SET BUILDING needs /FIRE_RECALL, /EPO, or /NORMAL\n"
     }
 
     func setDefault(_ cmd: Parsed) -> String {
@@ -137,6 +190,22 @@ extension DCLEngine {
                 ? "%SET-I-NOCHG, cab \(dLabel) was already FREIGHT\n"
                 : "%SET-I-CABFRT, cab \(dLabel) profile set to FREIGHT\n"
         }
-        return "%SET-W-MISSQUAL, /MANUAL, /AUTOMATIC, /PAX, or /FREIGHT required for SET CAB\n"
+        if let phase = cmd.qualifierValue("PHASE2", min: 5)
+                        ?? cmd.qualifierValue("PHASE_TWO", min: 5) {
+            let on = phase.uppercased() == "ON"
+            _ = world.mutateLocal(cab.id) { $0.phaseTwoActive = on }
+            return on
+                ? "%SET-W-PHASE2, cab \(dLabel) in Phase II Fire Service -- fireman's operation\n"
+                : "%SET-I-PHASE2OFF, cab \(dLabel) Phase II Fire Service released\n"
+        }
+        if let ind = cmd.qualifierValue("INDEPENDENT", min: 3)
+                        ?? cmd.qualifierValue("IND", min: 3) {
+            let on = ind.uppercased() == "ON"
+            _ = world.mutateLocal(cab.id) { $0.independentActive = on }
+            return on
+                ? "%SET-I-INDEP, cab \(dLabel) in Independent Service -- doors held open, no group dispatch\n"
+                : "%SET-I-INDEPOFF, cab \(dLabel) returned to normal group dispatch\n"
+        }
+        return "%SET-W-MISSQUAL, SET CAB needs /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, or /INDEPENDENT\n"
     }
 }

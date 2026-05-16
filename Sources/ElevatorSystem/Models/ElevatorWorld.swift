@@ -1,11 +1,38 @@
 import Foundation
 import Combine
 
+/// Building-wide operating mode. Real elevator code (ASME A17.1 §2.27,
+/// EN 81-72 / EN 81-73) requires the system to override every cab's
+/// normal call-handling behaviour under certain conditions.
+enum BuildingMode: String, Codable {
+    /// Normal automatic group dispatch.
+    case normal
+    /// Phase I Fire Service Recall: every cab is taken out of service,
+    /// existing car / hall calls are cancelled, and each cab travels
+    /// directly to the designated recall floor with doors open. The
+    /// auto-driver is suspended for the duration.
+    case fireRecall
+    /// Emergency Power Operation: the backup generator can only run
+    /// ONE cab at a time. The designated cab keeps running; all other
+    /// cabs are sent to the recall floor with doors open, then held.
+    case emergencyPower
+}
+
 @MainActor
 final class ElevatorWorld: ObservableObject {
     @Published var elevators: [Elevator] = []
     @Published var localPeerId: String
     @Published var localPeerLabel: String
+
+    /// Current building-wide safety mode. Defaults to .normal.
+    @Published var buildingMode: BuildingMode = .normal
+    /// Floor every cab is recalled to under .fireRecall and
+    /// .emergencyPower. Defaults to the lowest building floor.
+    @Published var recallFloor: Int = Sim.firstFloor
+    /// Cab designated to remain operational on emergency-power. While
+    /// `buildingMode == .emergencyPower` every other cab is held at
+    /// the recall floor.
+    @Published var epoCabId: UUID?
 
     private var timer: Timer?
     private var lastTickAt: Date = .init()
@@ -35,8 +62,50 @@ final class ElevatorWorld: ObservableObject {
         let now = Date()
         let dt = min(0.1, now.timeIntervalSince(lastTickAt))
         lastTickAt = now
+        enforceBuildingMode()
         for index in elevators.indices {
             advance(&elevators[index], dt: dt)
+        }
+    }
+
+    /// Enforce Phase I / EPO behaviour every tick: cabs that must
+    /// recall get their queue replaced with the recall floor and have
+    /// their doors held open once they get there.
+    private func enforceBuildingMode() {
+        guard buildingMode != .normal else { return }
+        let local = locallyOwned()
+        for cab in local {
+            let mustRecall: Bool
+            switch buildingMode {
+            case .fireRecall:
+                mustRecall = true
+            case .emergencyPower:
+                mustRecall = (cab.id != epoCabId)
+            case .normal:
+                mustRecall = false
+            }
+            guard mustRecall else { continue }
+            mutateLocal(cab.id) { e in
+                let parked = e.isStoppedAtFloor && e.nearestFloor == recallFloor
+                if !parked {
+                    if e.queue != [recallFloor] {
+                        e.queue = [recallFloor]
+                    }
+                    return
+                }
+                // Already at the recall floor: open the doors if they
+                // aren't already, and hold them open indefinitely so
+                // the cab can't sneak back into service.
+                e.queue = []
+                if e.doors == .closed || e.doors == .closing {
+                    e.doors = .opening
+                    e.doorProgress = e.doors == .closing
+                        ? 1.0 - e.doorProgress
+                        : 0
+                } else if e.doors == .open {
+                    e.doorDwellRemaining = max(e.doorDwellRemaining, 999.0)
+                }
+            }
         }
     }
 
@@ -53,6 +122,14 @@ final class ElevatorWorld: ObservableObject {
             elev.direction = .idle
             return
         case .open:
+            // Phase II ("fireman's operation") and Independent Service
+            // both require the cab to hold its doors open until the
+            // operator explicitly commands a close -- the dwell timer
+            // is suspended.
+            if elev.phaseTwoActive || elev.independentActive {
+                elev.direction = .idle
+                return
+            }
             elev.doorDwellRemaining -= dt
             if elev.doorDwellRemaining <= 0 {
                 elev.doors = .closing
