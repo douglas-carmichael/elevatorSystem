@@ -96,8 +96,8 @@ enum Strings {
         add("btn.profile.pax",      "PAX",                                 "PASS.")
         add("btn.profile.freight",  "FRT",                                 "FRET")
 
-        add("hint.line",            "F1/?=HELP  TAB=NEXT CAB  L=LANG  D=DCL  A=AUTO/MAN  Q=QUIT",
-                                    "F1/?=AIDE  TAB=CAB SUIV  L=LANGUE  D=DCL  A=AUTO/MAN  Q=QUITTER")
+        add("hint.line",            "F1/?=HELP  TAB=CAB  L=LANG  D=DCL  M=MODBUS  A=AUTO/MAN  Q=QUIT",
+                                    "F1/?=AIDE  TAB=CAB  L=LANGUE  D=DCL  M=MODBUS  A=AUTO/MAN  Q=QUITTER")
         add("hint.lang",            "LANG",                                "LANGUE")
 
         add("help.title",           "KEYBOARD COMMANDS",                   "RACCOURCIS CLAVIER")
@@ -109,6 +109,18 @@ enum Strings {
         add("help.k.doors",         "Open / close doors on focused cab",   "Ouvrir / fermer les portes")
         add("help.k.dcl",           "Open DCL diagnostic terminal",        "Ouvrir le terminal de diagnostic DCL")
         add("help.k.mode",          "Toggle AUTO / MANUAL on focused cab", "Basculer AUTO / MANUEL sur la cabine focalisée")
+        add("help.k.modbus",        "Show / hide Modbus register map",     "Afficher / masquer le plan des registres Modbus")
+        add("modbus.legend.title",  "MODBUS REGISTER MAP",                 "PLAN DES REGISTRES MODBUS")
+        add("modbus.legend.endpoint","Endpoint:  127.0.0.1:5020   Unit ID 1   -- 8 cabs supported",
+                                     "Point d'accès :  127.0.0.1:5020   Unit ID 1   -- 8 cabines")
+        add("modbus.legend.ir",     "INPUT REGISTERS  (FC 04, read-only)",
+                                    "REGISTRES D'ENTRÉE  (FC 04, lecture seule)")
+        add("modbus.legend.hr",     "HOLDING REGISTERS  (FC 03 read, FC 06 write)",
+                                    "REGISTRES DE MAINTIEN  (FC 03 lecture, FC 06 écriture)")
+        add("modbus.legend.coil",   "COILS  (FC 01 read, FC 05 write)",
+                                    "BOBINES  (FC 01 lecture, FC 05 écriture)")
+        add("modbus.legend.di",     "DISCRETE INPUTS  (FC 02, read-only)",
+                                    "ENTRÉES TOR  (FC 02, lecture seule)")
         add("help.k.esc",           "Close this overlay",                  "Fermer cette aide")
         add("help.dismiss",         "PRESS  ESC  TO DISMISS",              "APPUYEZ SUR ESC POUR FERMER")
         add("help.focus.hint",      "FOCUSED CAB",                         "CABINE FOCALISÉE")

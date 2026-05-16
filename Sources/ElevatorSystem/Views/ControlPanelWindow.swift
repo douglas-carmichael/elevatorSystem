@@ -11,6 +11,7 @@ struct ControlPanelWindow: View {
     @State private var focusedCabId: UUID?
     @State private var showHelp: Bool = false
     @State private var showCredits: Bool = false
+    @State private var showModbusLegend: Bool = false
 
     var body: some View {
         ZStack {
@@ -42,6 +43,10 @@ struct ControlPanelWindow: View {
                 CreditsOverlay(onDismiss: { showCredits = false })
                     .transition(.opacity)
             }
+            if showModbusLegend {
+                ModbusLegendOverlay(onDismiss: { showModbusLegend = false })
+                    .transition(.opacity)
+            }
         }
         .frame(minWidth: 760, minHeight: 620)
         .environment(\.colorScheme, .dark)
@@ -57,6 +62,7 @@ struct ControlPanelWindow: View {
         if ev.keyCode == KeyCode.escape {
             if showHelp { showHelp = false; return nil }
             if showCredits { showCredits = false; return nil }
+            if showModbusLegend { showModbusLegend = false; return nil }
             return ev
         }
         if ev.keyCode == KeyCode.f1 {
@@ -87,6 +93,9 @@ struct ControlPanelWindow: View {
             return nil
         case "a":
             toggleFocusedAutomation()
+            return nil
+        case "m":
+            showModbusLegend.toggle()
             return nil
         case "o":
             mutateFocused { $0.requestDoorsOpen() }
@@ -728,6 +737,7 @@ private struct HelpOverlay: View {
                     row("O  /  C",   language.t("help.k.doors"))
                     row("D",         language.t("help.k.dcl"))
                     row("A",         language.t("help.k.mode"))
+                    row("M",         language.t("help.k.modbus"))
                     row("Q",         language.t("help.k.quit"))
                     row("ESC",       language.t("help.k.esc"))
                     Spacer().frame(height: 6)
@@ -818,6 +828,89 @@ private struct CreditsOverlay: View {
             Text(url)
                 .font(RetroTheme.monoSm)
                 .foregroundColor(RetroTheme.amberDim)
+        }
+    }
+}
+
+/// Reference card for the Modbus TCP register map. Toggled with M --
+/// designed so a viewer following along with `mbpoll` or QModMaster
+/// can read what each register / coil offset means without diving
+/// into the source. ESC, M again, or tap-anywhere dismisses.
+private struct ModbusLegendOverlay: View {
+    let onDismiss: () -> Void
+    @EnvironmentObject var language: AppLanguage
+
+    var body: some View {
+        ZStack {
+            RetroTheme.bg.opacity(0.9).ignoresSafeArea()
+            BoxPanel(title: language.t("modbus.legend.title"), accent: RetroTheme.cyan) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(language.t("modbus.legend.endpoint"))
+                        .font(RetroTheme.monoSm)
+                        .foregroundColor(RetroTheme.amberDim)
+                    Spacer().frame(height: 4)
+
+                    section(language.t("modbus.legend.ir"))
+                    row("0..7",   "position × 10")
+                    row("8..15",  "direction (0=idle 1=up 2=dn)")
+                    row("16..23", "door state (0=closed..3=closing)")
+                    row("24..31", "queue depth")
+                    row("32..39", "door progress %")
+                    row("40..47", "velocity × 100 (signed Int16)")
+                    row("100",    "cab count   /  101 peer count")
+                    row("102",    "building floors")
+                    row("103",    "telnet sessions  /  104 modbus clients")
+                    row("105",    "building mode  0=norm 1=fire 2=epo")
+                    row("106",    "recall floor")
+                    row("107",    "active alarms  /  108 highest severity")
+                    row("109",    "dispatch  0=collective 1=destination")
+
+                    Spacer().frame(height: 4)
+                    section(language.t("modbus.legend.hr"))
+                    row("0..7",   "profile  0=PAX  1=FRT")
+                    row("8..15",  "mode     0=MAN  1=AUTO")
+                    row("16..23", "target floor -- write to CALL")
+
+                    Spacer().frame(height: 4)
+                    section(language.t("modbus.legend.coil"))
+                    row("0..7",   "doors OPEN command (pulse 1)")
+                    row("8..15",  "doors CLOSE command")
+                    row("16..23", "STOP / cancel queue")
+
+                    Spacer().frame(height: 4)
+                    section(language.t("modbus.legend.di"))
+                    row("0..7",   "cab is locally owned")
+                    row("8..15",  "cab is moving")
+                    row("16..23", "doors are open")
+
+                    Spacer().frame(height: 8)
+                    Text(language.t("help.dismiss"))
+                        .font(RetroTheme.monoSm)
+                        .foregroundColor(RetroTheme.amberDim)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .frame(width: 560)
+            }
+            .onTapGesture { onDismiss() }
+        }
+    }
+
+    private func section(_ text: String) -> some View {
+        Text(text)
+            .font(RetroTheme.mono)
+            .foregroundColor(RetroTheme.cyan)
+            .retroGlow()
+    }
+
+    private func row(_ addr: String, _ desc: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(addr)
+                .font(RetroTheme.mono)
+                .foregroundColor(RetroTheme.amberBright)
+                .frame(width: 80, alignment: .leading)
+            Text(desc)
+                .font(RetroTheme.monoSm)
+                .foregroundColor(RetroTheme.amber)
         }
     }
 }
