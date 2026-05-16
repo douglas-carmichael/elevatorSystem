@@ -159,7 +159,7 @@ enum Strings {
         add("diag.step.brake.cab",  "Cab %@ -- brake hold force",          "Cabine %@ -- force de freinage")
         add("diag.step.brake.fw",   "Cross-check brake controller firmware",
                                     "Vérification du firmware contrôleur frein")
-        add("diag.step.door.cycle", "Cab %@ -- doors open/close cycle",    "Cabine %@ -- cycle ouvert./fermet. portes")
+        add("diag.step.door.cycle", "Cab %@ -- doors open/close cycle",    "Cabine %@ -- ouvert./fermet. portes")
         add("diag.step.door.obst",  "Cab %@ -- obstruction sensor",        "Cabine %@ -- capteur d'obstruction")
         add("diag.step.weight.zero","Cab %@ -- load cell zero",            "Cabine %@ -- zéro capteur de charge")
         add("diag.step.weight.span","Cab %@ -- load cell span",            "Cabine %@ -- gain capteur de charge")
