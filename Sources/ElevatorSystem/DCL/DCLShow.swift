@@ -17,6 +17,7 @@ extension DCLEngine {
         case matches(what, "TIME"):                return showTime()
         case matches(what, "NETWORK",     min: 3): return showNetwork()
         case matches(what, "QUEUE",       min: 4): return showQueue()
+        case matches(what, "ALARMS",      min: 3): return showAlarms()
         case matches(what, "LOGICAL",     min: 3): return showLogical(cmd)
         case matches(what, "SYMBOL",      min: 3): return showSymbol(cmd)
         case matches(what, "ERROR",       min: 3): return showError()
@@ -38,6 +39,59 @@ extension DCLEngine {
         default:
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
+        }
+    }
+
+    func showAlarms() -> String {
+        let alarms = world?.alarmLog ?? []
+        var s = "\n" + String(format: tr("dcl.alarm.title"), stamp(Date())) + "\n"
+        s += tr("dcl.alarm.header") + "\n"
+        s += "  ----  ---------------------------  ---------  -------  ---------  -------------  ------------------------------\n"
+        guard !alarms.isEmpty else {
+            s += tr("dcl.alarm.none") + "\n"
+            return s
+        }
+        for alarm in alarms.prefix(40) {
+            let id = String(format: "%04d", alarm.sequence)
+            let sev = alarmSeverityLabel(alarm.severity).padding(toLength: 9, withPad: " ", startingAt: 0)
+            let state = alarmStatusLabel(alarm).padding(toLength: 7, withPad: " ", startingAt: 0)
+            let source = alarm.source.padding(toLength: 9, withPad: " ", startingAt: 0)
+            let point = alarm.point.padding(toLength: 13, withPad: " ", startingAt: 0)
+            s += "  \(id)  \(stamp(alarm.raisedAt))  \(sev)  \(state)  \(source)  \(point)  \(alarmMessage(alarm.message))\n"
+        }
+        s += "\n" + tr("dcl.alarm.ackhint") + "\n"
+        return s
+    }
+
+    private func alarmSeverityLabel(_ severity: AlarmSeverity) -> String {
+        switch severity {
+        case .advisory: return tr("alarm.sev.advisory")
+        case .minor: return tr("alarm.sev.minor")
+        case .major: return tr("alarm.sev.major")
+        case .critical: return tr("alarm.sev.critical")
+        }
+    }
+
+    private func alarmStatusLabel(_ alarm: SCADAAlarm) -> String {
+        if alarm.clearedAt != nil { return tr("alarm.status.cleared") }
+        return alarm.isAcknowledged ? tr("alarm.status.ack") : tr("alarm.status.unack")
+    }
+
+    private func alarmMessage(_ message: String) -> String {
+        switch message {
+        case Strings.lookup("alarm.msg.controller", lang: .en): return tr("alarm.msg.controller")
+        case Strings.lookup("alarm.msg.doorzone", lang: .en): return tr("alarm.msg.doorzone")
+        case Strings.lookup("alarm.msg.brake", lang: .en): return tr("alarm.msg.brake")
+        case Strings.lookup("alarm.msg.peerlink", lang: .en): return tr("alarm.msg.peerlink")
+        case Strings.lookup("alarm.msg.mains", lang: .en): return tr("alarm.msg.mains")
+        case Strings.lookup("alarm.msg.fire", lang: .en): return tr("alarm.msg.fire")
+        case Strings.lookup("alarm.msg.epo", lang: .en): return tr("alarm.msg.epo")
+        case Strings.lookup("alarm.msg.overspeed", lang: .en): return tr("alarm.msg.overspeed")
+        case Strings.lookup("alarm.msg.landingzone", lang: .en): return tr("alarm.msg.landingzone")
+        case Strings.lookup("alarm.msg.doorheld", lang: .en): return tr("alarm.msg.doorheld")
+        case Strings.lookup("alarm.msg.doorclose", lang: .en): return tr("alarm.msg.doorclose")
+        case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return tr("alarm.msg.dispatchstall")
+        default: return message
         }
     }
 

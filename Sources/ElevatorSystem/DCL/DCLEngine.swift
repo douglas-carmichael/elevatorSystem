@@ -484,6 +484,7 @@ final class DCLEngine: ObservableObject {
         case matches(head, "DEALLOCATE", min: 5):             return deallocateCmd(cmd)
         case matches(head, "REPLY"):                          return replyCmd(cmd)
         case matches(head, "REQUEST", min: 4):                return requestCmd(cmd)
+        case matches(head, "ACKNOWLEDGE", min: 3):            return acknowledgeCmd(cmd)
 
         // Genuinely privileged verbs.
         case matches(head, "INITIALIZE", min: 4):             return noPriv("INITIALIZE")

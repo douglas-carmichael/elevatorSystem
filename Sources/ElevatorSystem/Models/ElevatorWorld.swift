@@ -18,6 +18,45 @@ enum BuildingMode: String, Codable {
     case emergencyPower
 }
 
+enum AlarmSeverity: Int, Codable, CaseIterable, Comparable {
+    case advisory = 0
+    case minor = 1
+    case major = 2
+    case critical = 3
+
+    static func < (lhs: AlarmSeverity, rhs: AlarmSeverity) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .advisory: return "ADVISORY"
+        case .minor: return "MINOR"
+        case .major: return "MAJOR"
+        case .critical: return "CRITICAL"
+        }
+    }
+}
+
+struct SCADAAlarm: Identifiable, Codable, Hashable {
+    let id: UUID
+    let sequence: Int
+    let raisedAt: Date
+    var acknowledgedAt: Date?
+    var clearedAt: Date?
+    let source: String
+    let point: String
+    let severity: AlarmSeverity
+    let message: String
+
+    var isActive: Bool { clearedAt == nil }
+    var isAcknowledged: Bool { acknowledgedAt != nil }
+    var statusLabel: String {
+        if clearedAt != nil { return "CLEARED" }
+        return acknowledgedAt == nil ? "UNACK" : "ACK"
+    }
+}
+
 @MainActor
 final class ElevatorWorld: ObservableObject {
     @Published var elevators: [Elevator] = []
@@ -33,9 +72,14 @@ final class ElevatorWorld: ObservableObject {
     /// `buildingMode == .emergencyPower` every other cab is held at
     /// the recall floor.
     @Published var epoCabId: UUID?
+    @Published private(set) var alarmLog: [SCADAAlarm] = []
 
     private var timer: Timer?
     private var lastTickAt: Date = .init()
+    private var nextAlarmSequence: Int = 1
+    private var doorOpenSince: [UUID: Date] = [:]
+    private var doorClosingSince: [UUID: Date] = [:]
+    private var dispatchStallSince: [UUID: Date] = [:]
     var onLocalChange: ((Elevator) -> Void)?
 
     init(localPeerId: String = UUID().uuidString, localPeerLabel: String = Host.current().localizedName ?? "LOCAL") {
@@ -65,6 +109,136 @@ final class ElevatorWorld: ObservableObject {
         enforceBuildingMode()
         for index in elevators.indices {
             advance(&elevators[index], dt: dt)
+        }
+        sampleSystemAlarms()
+        sampleCabAlarms(at: now)
+    }
+
+    private func sampleSystemAlarms() {
+        switch buildingMode {
+        case .normal:
+            clearAlarm(source: "SYS", point: "SAFETY_MODE")
+        case .fireRecall:
+            raiseAlarm(source: "SYS",
+                       point: "SAFETY_MODE",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.fire", lang: .en))
+        case .emergencyPower:
+            raiseAlarm(source: "SYS",
+                       point: "SAFETY_MODE",
+                       severity: .major,
+                       message: Strings.lookup("alarm.msg.epo", lang: .en))
+        }
+    }
+
+    private func sampleCabAlarms(at now: Date) {
+        let currentIds = Set(elevators.map(\.id))
+        doorOpenSince = doorOpenSince.filter { currentIds.contains($0.key) }
+        doorClosingSince = doorClosingSince.filter { currentIds.contains($0.key) }
+        dispatchStallSince = dispatchStallSince.filter { currentIds.contains($0.key) }
+
+        for cab in elevators {
+            let source = "CAB \(displayLabel(for: cab))"
+            sampleOverspeedAlarm(for: cab, source: source)
+            sampleLandingZoneAlarm(for: cab, source: source)
+            sampleDoorOpenAlarm(for: cab, source: source, at: now)
+            sampleDoorCloseAlarm(for: cab, source: source, at: now)
+            sampleDispatchStallAlarm(for: cab, source: source, at: now)
+        }
+    }
+
+    private func sampleOverspeedAlarm(for cab: Elevator, source: String) {
+        let limit = cab.profile.travelFloorsPerSecond * 1.15
+        if abs(cab.velocity) > limit {
+            raiseAlarm(source: source,
+                       point: "OVERSPEED",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.overspeed", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "OVERSPEED")
+        }
+    }
+
+    private func sampleLandingZoneAlarm(for cab: Elevator, source: String) {
+        let stoppedBetweenFloors = !cab.isStoppedAtFloor &&
+            abs(cab.velocity) < 0.02 &&
+            cab.queue.isEmpty &&
+            cab.doors == .closed
+        if stoppedBetweenFloors {
+            raiseAlarm(source: source,
+                       point: "LANDING_ZONE",
+                       severity: .major,
+                       message: Strings.lookup("alarm.msg.landingzone", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "LANDING_ZONE")
+        }
+    }
+
+    private func sampleDoorOpenAlarm(for cab: Elevator, source: String, at now: Date) {
+        let shouldTrack = cab.doors == .open &&
+            !cab.phaseTwoActive &&
+            !cab.independentActive &&
+            buildingMode == .normal
+        guard shouldTrack else {
+            doorOpenSince.removeValue(forKey: cab.id)
+            clearAlarm(source: source, point: "DOOR_OPEN")
+            return
+        }
+
+        let startedAt = doorOpenSince[cab.id] ?? now
+        doorOpenSince[cab.id] = startedAt
+        if now.timeIntervalSince(startedAt) > cab.profile.doorDwellDuration + 6.0 {
+            raiseAlarm(source: source,
+                       point: "DOOR_OPEN",
+                       severity: .minor,
+                       message: Strings.lookup("alarm.msg.doorheld", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "DOOR_OPEN")
+        }
+    }
+
+    private func sampleDoorCloseAlarm(for cab: Elevator, source: String, at now: Date) {
+        guard cab.doors == .closing else {
+            doorClosingSince.removeValue(forKey: cab.id)
+            clearAlarm(source: source, point: "DOOR_CLOSE")
+            return
+        }
+
+        let startedAt = doorClosingSince[cab.id] ?? now
+        doorClosingSince[cab.id] = startedAt
+        if now.timeIntervalSince(startedAt) > cab.profile.doorCloseDuration * 3.0 {
+            raiseAlarm(source: source,
+                       point: "DOOR_CLOSE",
+                       severity: .major,
+                       message: Strings.lookup("alarm.msg.doorclose", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "DOOR_CLOSE")
+        }
+    }
+
+    private func sampleDispatchStallAlarm(for cab: Elevator, source: String, at now: Date) {
+        let hasUnservedTarget = cab.queue.first.map { $0 != cab.nearestFloor || !cab.isStoppedAtFloor } ?? false
+        let shouldTrack = hasUnservedTarget &&
+            cab.doors == .closed &&
+            abs(cab.velocity) < 0.02 &&
+            buildingMode == .normal &&
+            !cab.phaseTwoActive &&
+            !cab.independentActive
+        guard shouldTrack else {
+            dispatchStallSince.removeValue(forKey: cab.id)
+            clearAlarm(source: source, point: "DISPATCH")
+            return
+        }
+
+        let startedAt = dispatchStallSince[cab.id] ?? now
+        dispatchStallSince[cab.id] = startedAt
+        if now.timeIntervalSince(startedAt) > 4.0 {
+            raiseAlarm(source: source,
+                       point: "DISPATCH",
+                       severity: .major,
+                       message: Strings.lookup("alarm.msg.dispatchstall", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "DISPATCH")
         }
     }
 
@@ -253,6 +427,76 @@ final class ElevatorWorld: ObservableObject {
 
     func canControl(_ elev: Elevator) -> Bool {
         elev.ownerPeerId == localPeerId
+    }
+
+    var activeAlarms: [SCADAAlarm] {
+        alarmLog
+            .filter(\.isActive)
+            .sorted {
+                if $0.severity != $1.severity { return $0.severity > $1.severity }
+                return $0.raisedAt > $1.raisedAt
+            }
+    }
+
+    var unacknowledgedAlarmCount: Int {
+        alarmLog.filter { $0.isActive && !$0.isAcknowledged }.count
+    }
+
+    var highestActiveSeverity: AlarmSeverity? {
+        activeAlarms.map(\.severity).max()
+    }
+
+    @discardableResult
+    func raiseAlarm(source: String, point: String, severity: AlarmSeverity, message: String) -> SCADAAlarm {
+        if let index = alarmLog.firstIndex(where: { $0.isActive && $0.source == source && $0.point == point }) {
+            return alarmLog[index]
+        }
+        let alarm = SCADAAlarm(id: UUID(),
+                               sequence: nextAlarmSequence,
+                               raisedAt: Date(),
+                               acknowledgedAt: nil,
+                               clearedAt: nil,
+                               source: source,
+                               point: point,
+                               severity: severity,
+                               message: message)
+        nextAlarmSequence += 1
+        alarmLog.insert(alarm, at: 0)
+        if alarmLog.count > 200 {
+            alarmLog.removeLast(alarmLog.count - 200)
+        }
+        return alarm
+    }
+
+    @discardableResult
+    func acknowledgeAlarm(sequence: Int) -> Bool {
+        guard let index = alarmLog.firstIndex(where: { $0.sequence == sequence && $0.isActive }) else { return false }
+        guard alarmLog[index].acknowledgedAt == nil else { return true }
+        alarmLog[index].acknowledgedAt = Date()
+        return true
+    }
+
+    func acknowledgeAllAlarms() -> Int {
+        var count = 0
+        for index in alarmLog.indices where alarmLog[index].isActive && alarmLog[index].acknowledgedAt == nil {
+            alarmLog[index].acknowledgedAt = Date()
+            count += 1
+        }
+        return count
+    }
+
+    @discardableResult
+    func clearAlarm(sequence: Int) -> Bool {
+        guard let index = alarmLog.firstIndex(where: { $0.sequence == sequence && $0.isActive }) else { return false }
+        alarmLog[index].clearedAt = Date()
+        return true
+    }
+
+    @discardableResult
+    func clearAlarm(source: String, point: String) -> Bool {
+        guard let index = alarmLog.firstIndex(where: { $0.isActive && $0.source == source && $0.point == point }) else { return false }
+        alarmLog[index].clearedAt = Date()
+        return true
     }
 
     var remotePeerIds: [String] {

@@ -54,6 +54,9 @@ enum Strings {
         add("status.mode.epo",      "EMERGENCY POWER",                     "ALIM. SECOURS")
         add("status.you",           "NODE",                                "NŒUD")
         add("status.ready",         "READY",                               "PRÊT")
+        add("status.alarms",        "ALARMS",                              "ALARMES")
+        add("status.alarms.normal", "NORMAL",                              "NORMAL")
+        add("status.alarms.summary","%d ACTIVE / %d UNACK",                "%d ACTIVES / %d NON ACQ.")
 
         add("elev.cab",             "CAB",                                 "CABINE")
         add("elev.floor",           "FLOOR",                               "ÉTAGE")
@@ -113,6 +116,61 @@ enum Strings {
         add("misc.unknown",         "UNKNOWN",                             "INCONNU")
         add("misc.none",            "NONE",                                "AUCUN")
         add("misc.empty",           "(empty)",                             "(vide)")
+
+        add("alarm.panel.title",    "SCADA ALARMS - POINT OF FAILURE",     "ALARMES SCADA - POINT DE DÉFAILLANCE")
+        add("alarm.active",         "ACTIVE",                              "ACTIVES")
+        add("alarm.unack",          "UNACK",                               "NON ACQ.")
+        add("alarm.ack",            "ACK",                                 "ACQ.")
+        add("alarm.ack.all",        "ACK ALL",                             "TOUT ACQ.")
+        add("alarm.clear.ack",      "CLEAR ACK",                           "EFF. ACQ.")
+        add("alarm.none.active",    "NO ACTIVE ALARMS",                    "AUCUNE ALARME ACTIVE")
+        add("alarm.col.id",         "ID",                                  "ID")
+        add("alarm.col.sev",        "SEV",                                 "GRAV.")
+        add("alarm.col.state",      "STATE",                               "ÉTAT")
+        add("alarm.col.source",     "SOURCE",                              "SOURCE")
+        add("alarm.col.point",      "POINT",                               "POINT")
+        add("alarm.col.message",    "MESSAGE",                             "MESSAGE")
+        add("alarm.status.unack",   "UNACK",                               "NON ACQ.")
+        add("alarm.status.ack",     "ACK",                                 "ACQ.")
+        add("alarm.status.cleared", "CLEARED",                             "EFFACÉE")
+        add("alarm.sev.advisory",   "ADVISORY",                            "INFO")
+        add("alarm.sev.minor",      "MINOR",                               "MINEURE")
+        add("alarm.sev.major",      "MAJOR",                               "MAJEURE")
+        add("alarm.sev.critical",   "CRITICAL",                            "CRITIQUE")
+        add("alarm.msg.controller", "Controller watchdog missed scan",      "Chien de garde contrôleur sans cycle")
+        add("alarm.msg.doorzone",   "Door zone input mismatch",             "Discordance entrée zone de porte")
+        add("alarm.msg.brake",      "Brake contact failed to prove",        "Contact frein non confirmé")
+        add("alarm.msg.peerlink",   "Peer network heartbeat lost",          "Battement réseau pair perdu")
+        add("alarm.msg.mains",      "Mains supply failure",                 "Défaillance alimentation secteur")
+        add("alarm.msg.fire",       "Phase I fire recall active",           "Rappel incendie Phase I actif")
+        add("alarm.msg.epo",        "Emergency power operation active",     "Fonctionnement sur alimentation secours")
+        add("alarm.msg.overspeed",  "Cab speed exceeded profile limit",     "Vitesse cabine au-dessus de la limite")
+        add("alarm.msg.landingzone", "Cab stopped outside landing zone",     "Cabine arrêtée hors zone palière")
+        add("alarm.msg.doorheld",   "Doors held open beyond dwell time",    "Portes ouvertes au-delà de la temporisation")
+        add("alarm.msg.doorclose",  "Door close cycle exceeded limit",      "Cycle de fermeture portes trop long")
+        add("alarm.msg.dispatchstall", "Queued cab failed to start",         "Cabine en file sans démarrage")
+        add("dcl.alarm.title",      "Elevator SCADA alarm log at %@",       "Journal des alarmes SCADA ascenseur à %@")
+        add("dcl.alarm.header",     "  ID    Time                         Severity   State    Source     Point          Message",
+                                    "  ID    Heure                        Gravité    État     Source     Point          Message")
+        add("dcl.alarm.none",       "  No alarms have been logged.",        "  Aucune alarme n'a été journalisée.")
+        add("dcl.alarm.ackhint",    "  Acknowledge with:  ACKNOWLEDGE ALARM <id>   or   ACKNOWLEDGE ALARM ALL",
+                                    "  Acquitter avec :  ACKNOWLEDGE ALARM <id>   ou   ACKNOWLEDGE ALARM ALL")
+        add("dcl.ack.nosystem",     "%ACK-W-NOSYSTEM, elevator world is not attached",
+                                    "%ACK-W-NOSYSTEM, monde ascenseur non attaché")
+        add("dcl.ack.missalarm",    "%ACK-W-MISSALARM, specify ACKNOWLEDGE ALARM <id> or ACKNOWLEDGE ALARM ALL",
+                                    "%ACK-W-MISSALARM, spécifiez ACKNOWLEDGE ALARM <id> ou ACKNOWLEDGE ALARM ALL")
+        add("dcl.ack.missid",       "%ACK-W-MISSID, missing alarm id or ALL",
+                                    "%ACK-W-MISSID, identifiant d'alarme manquant ou ALL")
+        add("dcl.ack.alarms.one",   "%ACK-S-ALARMS, 1 active alarm acknowledged",
+                                    "%ACK-S-ALARMS, 1 alarme active acquittée")
+        add("dcl.ack.alarms.many",  "%ACK-S-ALARMS, %d active alarms acknowledged",
+                                    "%ACK-S-ALARMS, %d alarmes actives acquittées")
+        add("dcl.ack.invalid",      "%ACK-W-IVID, invalid alarm id %@",
+                                    "%ACK-W-IVID, identifiant d'alarme invalide %@")
+        add("dcl.ack.alarm",        "%ACK-S-ALARM, alarm %@ acknowledged",
+                                    "%ACK-S-ALARM, alarme %@ acquittée")
+        add("dcl.ack.notfound",     "%ACK-W-NOTFOUND, active alarm %@ was not found",
+                                    "%ACK-W-NOTFOUND, alarme active %@ introuvable")
 
         // LPD diagnostic test utility (layered product -- localised because
         // an LPD-branded application absolutely would be, even though the

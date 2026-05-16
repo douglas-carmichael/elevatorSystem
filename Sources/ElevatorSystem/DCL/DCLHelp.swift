@@ -8,13 +8,13 @@ extension DCLEngine {
         }
         var s = "\n  HELP topic\n  ---- -----\n"
         s += "Available topics:\n\n"
-        s += "  @COMMAND      ACCOUNTING    ALLOCATE      ANALYZE       APPEND\n"
-        s += "  ASSIGN        ATTACH        BACKUP        CALL          CLEAR\n"
-        s += "  CLOSE         CONTINUE      COPY          CREATE        DEALLOCATE\n"
-        s += "  DEASSIGN      DEFINE        DELETE        DIFFERENCES   DIRECTORY\n"
-        s += "  DISMOUNT      EDIT          ELEVATOR      EXAMINE       EXIT\n"
-        s += "  FINGER        GOTO          HELP          IF            INSTALL\n"
-        s += "  LOGOUT        MAIL          MONITOR       MOUNT         OPEN\n"
+        s += "  @COMMAND      ACCOUNTING    ACKNOWLEDGE   ALLOCATE      ANALYZE\n"
+        s += "  APPEND        ASSIGN        ATTACH        BACKUP        CALL\n"
+        s += "  CLEAR         CLOSE         CONTINUE      COPY          CREATE\n"
+        s += "  DEALLOCATE    DEASSIGN      DEFINE        DELETE        DIFFERENCES\n"
+        s += "  DIRECTORY     DISMOUNT      EDIT          ELEVATOR      EXAMINE\n"
+        s += "  EXIT          FINGER        GOTO          HELP          IF\n"
+        s += "  INSTALL       LOGOUT        MAIL          MONITOR       MOUNT\n"
         s += "  PHONE         PRINT         PRODUCT       PURGE         RECALL\n"
         s += "  RENAME        REPLY         REQUEST       RUN           SCRIPTING\n"
         s += "  SEARCH        SET           SHOW          SPAWN         STOP\n"
@@ -32,11 +32,18 @@ extension DCLEngine {
             var s = "\n  SHOW <subcommand>\n"
             s += "      PROCESS [/ALL]   SYSTEM         USERS          DEVICES\n"
             s += "      MEMORY           TIME           NETWORK        QUEUE\n"
-            s += "      LOGICAL [/PROC]  SYMBOL [name]  ERROR          STATUS\n"
+            s += "      ALARMS           LOGICAL [/PROC]  SYMBOL [name]  ERROR\n"
+            s += "      STATUS\n"
             s += "      LICENSE          CPU            DEFAULT        QUOTA\n"
             s += "      PROTECTION       TERMINAL       WORKING_SET    VERSION\n"
             s += "      RMS_DEFAULT      INTRUSION      CLUSTER        CONNECTIONS\n"
             s += "      AUDIT\n"
+            return s
+        case matches(t, "ACKNOWLEDGE", min: 3):
+            var s = "\n  ACKNOWLEDGE ALARM <id>\n"
+            s += "  ACKNOWLEDGE ALARM ALL\n"
+            s += "      Mark one active SCADA alarm, or every active alarm, as seen by\n"
+            s += "      the operator. Alarm history is shown with SHOW ALARMS.\n"
             return s
         case matches(t, "SET"):
             var s = "\n  SET <subcommand>\n"
@@ -476,7 +483,7 @@ extension DCLEngine {
         let verbs: [String] = [
             "SHOW PROCESS", "SHOW PROCESS/ALL",
             "SHOW SYSTEM", "SHOW USERS", "SHOW DEVICES", "SHOW MEMORY",
-            "SHOW TIME", "SHOW NETWORK", "SHOW QUEUE",
+            "SHOW TIME", "SHOW NETWORK", "SHOW QUEUE", "SHOW ALARMS",
             "SHOW LOGICAL", "SHOW LOGICAL/PROCESS",
             "SHOW SYMBOL", "SHOW SYMBOL $STATUS", "SHOW SYMBOL $SEVERITY",
             "SHOW ERROR", "SHOW STATUS", "SHOW LICENSE",
@@ -515,9 +522,10 @@ extension DCLEngine {
             "ALLOCATE MUA0:", "ALLOCATE TT0:",
             "DEALLOCATE MUA0:", "DEALLOCATE/ALL",
             "REPLY \"go ahead\"", "REQUEST \"need maintenance\"",
+            "ACKNOWLEDGE ALARM ALL",
             "@STARTUP",
             "HELP", "HELP SHOW", "HELP SET", "HELP MONITOR",
-            "HELP CALL", "HELP ELEVATOR", "HELP SCRIPTING",
+            "HELP ACKNOWLEDGE", "HELP CALL", "HELP ELEVATOR", "HELP SCRIPTING",
             "HELP TUTORIAL",
         ]
 

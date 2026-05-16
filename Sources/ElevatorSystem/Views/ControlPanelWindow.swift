@@ -21,6 +21,7 @@ struct ControlPanelWindow: View {
             VStack(spacing: 14) {
                 BannerHeader()
                 StatusStrip()
+                SCADAAlarmPanel()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         ForEach(world.sortedElevators) { elev in
@@ -192,6 +193,9 @@ private struct StatusStrip: View {
             StatusLine(label: language.t("status.mode"),
                        value: modeValue,
                        valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
+            StatusLine(label: language.t("status.alarms"),
+                       value: alarmValue,
+                       valueColor: alarmColor)
             Spacer()
             StatusLine(label: "STAT",
                        value: language.t("status.ready"),
@@ -233,6 +237,209 @@ private struct StatusStrip: View {
         case .normal:         return language.t("status.mode.normal")
         case .fireRecall:     return language.t("status.mode.fire")
         case .emergencyPower: return language.t("status.mode.epo")
+        }
+    }
+
+    private var alarmValue: String {
+        let active = world.activeAlarms.count
+        let unack = world.unacknowledgedAlarmCount
+        return active == 0
+            ? language.t("status.alarms.normal")
+            : String(format: language.t("status.alarms.summary"), active, unack)
+    }
+
+    private var alarmColor: Color {
+        guard let severity = world.highestActiveSeverity else { return RetroTheme.green }
+        switch severity {
+        case .advisory: return RetroTheme.cyan
+        case .minor: return RetroTheme.amber
+        case .major: return RetroTheme.amberBright
+        case .critical: return .red
+        }
+    }
+}
+
+private struct SCADAAlarmPanel: View {
+    @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var language: AppLanguage
+
+    var body: some View {
+        BoxPanel(title: language.t("alarm.panel.title"), accent: panelAccent) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    StatusLine(label: language.t("alarm.active"),
+                               value: "\(world.activeAlarms.count)",
+                               valueColor: panelAccent)
+                    StatusLine(label: language.t("alarm.unack"),
+                               value: "\(world.unacknowledgedAlarmCount)",
+                               valueColor: world.unacknowledgedAlarmCount == 0 ? RetroTheme.green : RetroTheme.amberBright)
+                    Spacer()
+                    RetroButton(language.t("alarm.ack.all"), enabled: world.unacknowledgedAlarmCount > 0) {
+                        _ = world.acknowledgeAllAlarms()
+                    }
+                }
+                HStack(spacing: 8) {
+                    failureButton("CTRL", source: "SYS", point: "CONTROLLER", severity: .major, messageKey: "alarm.msg.controller")
+                    failureButton("DOOR", source: "CAB", point: "DOOR_ZONE", severity: .minor, messageKey: "alarm.msg.doorzone")
+                    failureButton("BRAKE", source: "CAB", point: "BRAKE", severity: .critical, messageKey: "alarm.msg.brake")
+                    failureButton("NET", source: "NET", point: "PEER_LINK", severity: .major, messageKey: "alarm.msg.peerlink")
+                    failureButton("PWR", source: "PWR", point: "MAINS", severity: .critical, messageKey: "alarm.msg.mains")
+                    RetroButton(language.t("alarm.clear.ack"), enabled: hasAcknowledgedActive) {
+                        clearAcknowledgedActive()
+                    }
+                }
+                alarmTable
+            }
+        }
+    }
+
+    private var alarmTable: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                header(language.t("alarm.col.id"), width: 42)
+                header(language.t("alarm.col.sev"), width: 76)
+                header(language.t("alarm.col.state"), width: 66)
+                header(language.t("alarm.col.source"), width: 76)
+                header(language.t("alarm.col.point"), width: 112)
+                header(language.t("alarm.col.message"), width: nil)
+            }
+            HRule(RetroTheme.amberDim)
+            if world.activeAlarms.isEmpty {
+                Text(language.t("alarm.none.active"))
+                    .font(RetroTheme.mono)
+                    .foregroundColor(RetroTheme.green)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(Array(world.activeAlarms.prefix(5))) { alarm in
+                    AlarmRow(alarm: alarm)
+                }
+            }
+        }
+    }
+
+    private func failureButton(_ label: String, source: String, point: String, severity: AlarmSeverity, messageKey: String) -> some View {
+        // The bare source "CAB" is a sentinel meaning "bind this manual
+        // fault to a real cab" so the row in the alarm table reads
+        // identically to the auto-detected cab faults (CAB L01 / CAB
+        // A02 / ...) instead of a generic "CAB" group entry. Resolved
+        // at render time -- if the local set of cabs changes, the
+        // button just retargets the next one.
+        let resolvedSource: String
+        if source == "CAB" {
+            if let cab = world.elevators.first(where: { $0.ownerPeerId == world.localPeerId }) {
+                resolvedSource = "CAB \(world.displayLabel(for: cab))"
+            } else {
+                resolvedSource = "CAB GROUP"
+            }
+        } else {
+            resolvedSource = source
+        }
+        let active = world.activeAlarms.contains { $0.source == resolvedSource && $0.point == point }
+        return RetroButton(label, highlighted: active) {
+            if active {
+                _ = world.clearAlarm(source: resolvedSource, point: point)
+            } else {
+                _ = world.raiseAlarm(source: resolvedSource, point: point, severity: severity, message: Strings.lookup(messageKey, lang: .en))
+            }
+        }
+    }
+
+    private func header(_ text: String, width: CGFloat?) -> some View {
+        Text(text)
+            .font(RetroTheme.monoSm)
+            .foregroundColor(RetroTheme.amberDim)
+            .frame(width: width, alignment: .leading)
+    }
+
+    private var panelAccent: Color {
+        guard let severity = world.highestActiveSeverity else { return RetroTheme.green }
+        switch severity {
+        case .advisory: return RetroTheme.cyan
+        case .minor: return RetroTheme.amber
+        case .major: return RetroTheme.amberBright
+        case .critical: return .red
+        }
+    }
+
+    private var hasAcknowledgedActive: Bool {
+        world.activeAlarms.contains { $0.isAcknowledged }
+    }
+
+    private func clearAcknowledgedActive() {
+        for alarm in world.activeAlarms where alarm.isAcknowledged {
+            _ = world.clearAlarm(sequence: alarm.sequence)
+        }
+    }
+}
+
+private struct AlarmRow: View {
+    let alarm: SCADAAlarm
+    @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var language: AppLanguage
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(String(format: "%04d", alarm.sequence), width: 42, color: RetroTheme.amberBright)
+            cell(localizedSeverity, width: 76, color: severityColor)
+            cell(localizedStatus, width: 66, color: alarm.isAcknowledged ? RetroTheme.green : RetroTheme.amberBright)
+            cell(alarm.source, width: 76, color: RetroTheme.cyan)
+            cell(alarm.point, width: 112, color: RetroTheme.amber)
+            Text(localizedMessage)
+                .font(RetroTheme.monoSm)
+                .foregroundColor(RetroTheme.amber)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            RetroButton(language.t("alarm.ack"), enabled: !alarm.isAcknowledged) {
+                _ = world.acknowledgeAlarm(sequence: alarm.sequence)
+            }
+        }
+    }
+
+    private func cell(_ text: String, width: CGFloat, color: Color) -> some View {
+        Text(text)
+            .font(RetroTheme.monoSm)
+            .foregroundColor(color)
+            .frame(width: width, alignment: .leading)
+    }
+
+    private var severityColor: Color {
+        switch alarm.severity {
+        case .advisory: return RetroTheme.cyan
+        case .minor: return RetroTheme.amber
+        case .major: return RetroTheme.amberBright
+        case .critical: return .red
+        }
+    }
+
+    private var localizedSeverity: String {
+        switch alarm.severity {
+        case .advisory: return language.t("alarm.sev.advisory")
+        case .minor: return language.t("alarm.sev.minor")
+        case .major: return language.t("alarm.sev.major")
+        case .critical: return language.t("alarm.sev.critical")
+        }
+    }
+
+    private var localizedStatus: String {
+        if alarm.clearedAt != nil { return language.t("alarm.status.cleared") }
+        return alarm.isAcknowledged ? language.t("alarm.status.ack") : language.t("alarm.status.unack")
+    }
+
+    private var localizedMessage: String {
+        switch alarm.message {
+        case Strings.lookup("alarm.msg.controller", lang: .en): return language.t("alarm.msg.controller")
+        case Strings.lookup("alarm.msg.doorzone", lang: .en): return language.t("alarm.msg.doorzone")
+        case Strings.lookup("alarm.msg.brake", lang: .en): return language.t("alarm.msg.brake")
+        case Strings.lookup("alarm.msg.peerlink", lang: .en): return language.t("alarm.msg.peerlink")
+        case Strings.lookup("alarm.msg.mains", lang: .en): return language.t("alarm.msg.mains")
+        case Strings.lookup("alarm.msg.fire", lang: .en): return language.t("alarm.msg.fire")
+        case Strings.lookup("alarm.msg.epo", lang: .en): return language.t("alarm.msg.epo")
+        case Strings.lookup("alarm.msg.overspeed", lang: .en): return language.t("alarm.msg.overspeed")
+        case Strings.lookup("alarm.msg.landingzone", lang: .en): return language.t("alarm.msg.landingzone")
+        case Strings.lookup("alarm.msg.doorheld", lang: .en): return language.t("alarm.msg.doorheld")
+        case Strings.lookup("alarm.msg.doorclose", lang: .en): return language.t("alarm.msg.doorclose")
+        case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return language.t("alarm.msg.dispatchstall")
+        default: return alarm.message
         }
     }
 }

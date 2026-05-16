@@ -41,6 +41,10 @@ import Network
 ///     102     Building floor count (top floor)
 ///     103     Number of telnet sessions
 ///     104     Number of Modbus clients connected
+///     105     Building safety mode  (0=normal, 1=fire, 2=EPO)
+///     106     Recall floor
+///     107     Active SCADA alarm count
+///     108     Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
 @MainActor
 final class ModbusTCPServer: ObservableObject {
     @Published private(set) var port: UInt16?
@@ -474,6 +478,15 @@ final class ModbusClient {
             default:              return 0
             }
         case 106: return UInt16(world?.recallFloor ?? Sim.firstFloor)
+        case 107:                                   // Active alarm count
+            return UInt16(min(0xFFFF, world?.activeAlarms.count ?? 0))
+        case 108:                                   // Highest active severity
+            // 0 = no active alarms, 1..4 = Advisory / Minor / Major /
+            // Critical. Lets a PLC HMI light a coloured beacon
+            // straight from one register read instead of pulling the
+            // whole alarm log over Modbus.
+            guard let s = world?.highestActiveSeverity else { return 0 }
+            return UInt16(s.rawValue + 1)
         default:  return 0
         }
     }

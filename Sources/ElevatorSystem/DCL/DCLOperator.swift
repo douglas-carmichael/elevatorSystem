@@ -3,6 +3,33 @@ import Foundation
 // Operator-level verbs: ALLOCATE / DEALLOCATE / MOUNT / DISMOUNT /
 // BACKUP / ANALYZE / EXAMINE / REPLY / REQUEST / RUN.
 extension DCLEngine {
+    func acknowledgeCmd(_ cmd: Parsed) -> String {
+        guard let world else {
+            return tr("dcl.ack.nosystem") + "\n"
+        }
+        guard let target = cmd.positional.first, matches(target, "ALARM", min: 3) else {
+            return tr("dcl.ack.missalarm") + "\n"
+        }
+        guard cmd.positional.count >= 2 else {
+            return tr("dcl.ack.missid") + "\n"
+        }
+        let id = cmd.positional[1].uppercased()
+        if matches(id, "ALL", min: 1) {
+            let count = world.acknowledgeAllAlarms()
+            if count == 1 {
+                return tr("dcl.ack.alarms.one") + "\n"
+            }
+            return String(format: tr("dcl.ack.alarms.many"), count) + "\n"
+        }
+        guard let sequence = Int(id) else {
+            return String(format: tr("dcl.ack.invalid"), cmd.positional[1]) + "\n"
+        }
+        if world.acknowledgeAlarm(sequence: sequence) {
+            return String(format: tr("dcl.ack.alarm"), String(format: "%04d", sequence)) + "\n"
+        }
+        return String(format: tr("dcl.ack.notfound"), String(format: "%04d", sequence)) + "\n"
+    }
+
     /// ALLOCATE -- claim a device for the current process.
     func allocateCmd(_ cmd: Parsed) -> String {
         guard let raw = cmd.positional.first else {
