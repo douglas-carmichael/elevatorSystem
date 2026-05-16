@@ -22,14 +22,17 @@ enum Strings {
         add("banner.subtitle",      "VSI OpenVMS V9.2-3   TERMINAL VT320", "VSI OpenVMS V9.2-3   TERMINAL VT320")
         add("banner.copyright",     "(C) 2026  LPD — LEVAGE & PORTES DAUPHINÉ",  "(C) 2026  LPD — LEVAGE & PORTES DAUPHINÉ")
 
+        // The OpenVMS login banner stays English regardless of app language --
+        // real VMS shipped English-only system messages, and only the LPD
+        // layered-product splash below would be localised by a French vendor.
         add("dcl.banner.welcome",       "Welcome to %@ (TM) Operating System, Version %@",
-                                        "Bienvenue dans %@ (TM), système d'exploitation version %@")
-        add("dcl.banner.onnode",        "on node %@",                          "sur le nœud %@")
-        add("dcl.banner.lastinter",     "Last interactive login on %@",        "Dernière connexion interactive : %@")
-        add("dcl.banner.lastnon",       "Last non-interactive login on %@",    "Dernière connexion non-interactive : %@")
-        add("dcl.banner.shelltag",      "%@ -- DIAGNOSTIC SHELL",              "%@ -- SHELL DIAGNOSTIC")
+                                        "Welcome to %@ (TM) Operating System, Version %@")
+        add("dcl.banner.onnode",        "on node %@",                          "on node %@")
+        add("dcl.banner.lastinter",     "Last interactive login on %@",        "Last interactive login on %@")
+        add("dcl.banner.lastnon",       "Last non-interactive login on %@",    "Last non-interactive login on %@")
+        add("dcl.banner.shelltag",      "%@ -- DIAGNOSTIC SHELL",              "%@ -- DIAGNOSTIC SHELL")
         add("dcl.banner.help",          "Type HELP for a list of available commands.",
-                                        "Tapez HELP pour la liste des commandes disponibles.")
+                                        "Type HELP for a list of available commands.")
 
         add("status.peers",         "PEERS",                               "PAIRS")
         add("status.peers.none",    "NONE — AUTO MODE",                    "AUCUN — MODE AUTO")
