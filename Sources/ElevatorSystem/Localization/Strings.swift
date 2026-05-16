@@ -58,8 +58,12 @@ enum Strings {
         add("status.alarms.normal", "NORMAL",                              "NORMAL")
         add("status.alarms.summary","%d ACTIVE / %d UNACK",                "%d ACTIVES / %d NON ACQ.")
         add("status.dispatch",      "DISPATCH",                            "RÉGULATION")
-        add("status.dispatch.coll", "COLLECTIVE",                          "COLLECTIVE")
-        add("status.dispatch.dest", "DESTINATION",                         "DESTINATION")
+        // Shortened so the status-strip column doesn't wrap the value
+        // onto a second line at typical window widths. COLL and DEST
+        // are the standard industrial-controls abbreviations -- the
+        // long forms still appear in HELP CALL and SHOW DISPATCH.
+        add("status.dispatch.coll", "COLL",                                "COLL")
+        add("status.dispatch.dest", "DEST",                                "DEST")
 
         add("elev.cab",             "CAB",                                 "CABINE")
         add("elev.floor",           "FLOOR",                               "ÉTAGE")
