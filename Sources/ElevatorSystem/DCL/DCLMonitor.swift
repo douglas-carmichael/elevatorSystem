@@ -105,11 +105,15 @@ extension DCLEngine {
         s += "  From: \(stamp(monitorStartedAt))   To: \(stamp(now))\n"
         s += "  Elapsed: \(elapsed)   Interval: \(Int(monitorIntervalSec))s\n"
         s += "  Press  Ctrl/Y  to interrupt the request and return to the DCL prompt.\n"
-        // CSI H = cursor home; CSI 0 m resets any leftover SGR attribute
-        // from the rendered body (reverse/bold around the banner) so the
-        // erase-to-end painted by CSI J uses normal video; CRLF is needed
-        // because the alternate screen buffer doesn't do auto-CR on LF.
-        outRaw("\u{1B}[H" + s.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1B}[0m\u{1B}[J")
+        // Full clear (CSI 2 J) + home (CSI H) before each frame is what
+        // real SMG$ emits and is the only sequence that reliably wipes
+        // the previous refresh on terminals whose row count we don't
+        // know -- without this, taller body content scrolls and leaves
+        // duplicate rows from earlier frames visible under the new one
+        // (especially on external clients like ghostty via nc).
+        // CSI 0 m resets any leftover SGR before the clear so reverse-
+        // video erase cells don't bleed into the new frame.
+        outRaw("\u{1B}[0m\u{1B}[2J\u{1B}[H" + s.replacingOccurrences(of: "\n", with: "\r\n"))
     }
 
     /// Enter the VT220/320 alternate screen buffer so a continuous-monitor
@@ -222,12 +226,10 @@ extension DCLEngine {
         var s = mheader("SYSTEM STATISTICS")
         s += mcolHeader()
         s += mrow("Interrupt State",            intr)
-        s += mrow("MP Synchronization",         0.0)
         s += mrow("Kernel Mode",                kernel)
         s += mrow("Executive Mode",             exec)
         s += mrow("Supervisor Mode",            super_)
         s += mrow("User Mode",                  user)
-        s += mrow("Compatibility Mode",         0.0)
         s += mrow("Idle Time",                  usage.idle)
         s += "\n"
         s += mrowi("Process Count",             procCount)
@@ -247,15 +249,17 @@ extension DCLEngine {
         let intr   = usage.system * 0.05
         let user   = usage.user + usage.nice
 
+        // MP Synchronization and Compatibility Mode are 0 on x86_64 VSI
+        // OpenVMS (no VAX-compat instructions, no MP barrier sampling
+        // exposed) -- dropping them keeps the frame inside 24 rows so a
+        // standard VT220-sized client doesn't scroll.
         var s = mheader("TIME IN PROCESSOR MODES")
         s += mcolHeader()
         s += mrow("Interrupt State",            intr)
-        s += mrow("MP Synchronization",         0.0)
         s += mrow("Kernel Mode",                kernel)
         s += mrow("Executive Mode",             exec)
         s += mrow("Supervisor Mode",            super_)
         s += mrow("User Mode",                  user)
-        s += mrow("Compatibility Mode",         0.0)
         s += mrow("Idle Time",                  usage.idle)
         return s
     }
