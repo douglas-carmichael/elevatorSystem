@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// Core of the DCL shell: owns the published transcript, holds the
 /// process / terminal / symbol / volume state that every command family
@@ -165,6 +166,30 @@ final class DCLEngine: ObservableObject {
         // Render the banner now that the language reference is available.
         transcript = ""
         pendingOutput = ""
+        out(banner())
+        out(lpdSplash())
+        out(prompt)
+        // Subscribe to language changes so the banner and splash repaint
+        // in the new language when the operator hits `L` in the control
+        // panel. Without this the login block stays in whichever language
+        // was active at attach() time even after the rest of the UI
+        // switches.
+        languageCancellable?.cancel()
+        languageCancellable = language?.$current
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.reloginForLanguageChange() }
+            }
+    }
+
+    private var languageCancellable: AnyCancellable?
+
+    /// Wipe the terminal and re-emit the banner / splash / prompt so the
+    /// login block reflects the currently-selected language. Triggered by
+    /// the @Published subscription on AppLanguage.current.
+    private func reloginForLanguageChange() {
+        transcript = ""
+        outRaw("\u{1B}[2J\u{1B}[H")
         out(banner())
         out(lpdSplash())
         out(prompt)

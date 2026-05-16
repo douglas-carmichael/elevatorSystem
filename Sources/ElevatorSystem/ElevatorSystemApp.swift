@@ -76,28 +76,42 @@ struct ElevatorSystemApp: App {
     /// Catches the Xcode-launched-while-Finder-copy-runs case that
     /// LSMultipleInstancesProhibited misses, and prevents MONITOR CLUSTER
     /// from showing the same Mac as two phantom nodes.
+    ///
+    /// `isFinishedLaunching` filters out app entries that NSWorkspace
+    /// reports transiently during macOS session restore -- if we don't
+    /// require the other instance to be fully launched, a system-restored
+    /// ghost can cause every fresh launch to false-positive on itself.
     private func otherRunningInstance() -> NSRunningApplication? {
         guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
         let mine = ProcessInfo.processInfo.processIdentifier
         return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
-            .first { $0.processIdentifier != mine }
+            .first { $0.processIdentifier != mine && $0.isFinishedLaunching }
     }
 
     private func refuseDuplicateLaunch(other: NSRunningApplication) {
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = "Another ElevatorSystem instance is already running"
+        // Defer the modal + terminate so we're running OUTSIDE the AppKit
+        // / Core Animation transaction that the .onAppear that called us
+        // is nested inside. NSAlert.runModal() is suppressed inside a CA
+        // transaction (AppKit logs "cannot run inside a transaction begin
+        // /commit pair"), which silently dropped the alert and left the
+        // launch terminating without ever telling the user why.
         let pid = other.processIdentifier
-        alert.informativeText = """
+        let info = """
             Only one DCL node may run on this Mac at a time. The existing \
             instance (pid \(pid)) will keep running; this launch will quit.
             """
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Activate Existing")
-        let response = alert.runModal()
-        if response == .alertSecondButtonReturn {
-            other.activate(options: [.activateIgnoringOtherApps])
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "Another ElevatorSystem instance is already running"
+            alert.informativeText = info
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Activate Existing")
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
+                other.activate(options: [.activateIgnoringOtherApps])
+            }
+            NSApp.terminate(nil)
         }
-        NSApp.terminate(nil)
     }
 }
