@@ -9,6 +9,7 @@ struct ElevatorSystemApp: App {
     @StateObject private var automation: AutoDriver
     @StateObject private var dcl: DCLEngine
     @StateObject private var telnet: DCLTelnetServer
+    @StateObject private var modbus: ModbusTCPServer
 
     init() {
         let peerId = UUID().uuidString
@@ -18,12 +19,14 @@ struct ElevatorSystemApp: App {
         let automation = AutoDriver()
         let dcl = DCLEngine()
         let telnet = DCLTelnetServer()
+        let modbus = ModbusTCPServer()
         _language = StateObject(wrappedValue: AppLanguage())
         _world = StateObject(wrappedValue: world)
         _network = StateObject(wrappedValue: network)
         _automation = StateObject(wrappedValue: automation)
         _dcl = StateObject(wrappedValue: dcl)
         _telnet = StateObject(wrappedValue: telnet)
+        _modbus = StateObject(wrappedValue: modbus)
     }
 
     var body: some Scene {
@@ -34,6 +37,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(network)
                 .environmentObject(automation)
                 .environmentObject(telnet)
+                .environmentObject(modbus)
                 .onAppear { bootstrap() }
         }
         .windowResizability(.contentMinSize)
@@ -76,6 +80,8 @@ struct ElevatorSystemApp: App {
         dcl.attach(world: world, network: network, automation: automation, language: language)
         telnet.attach(world: world, network: network, automation: automation, language: language)
         telnet.start()
+        modbus.attach(world: world, network: network, automation: automation, telnet: telnet)
+        modbus.start()
     }
 
     /// Looks for another running ElevatorSystem process on this Mac.

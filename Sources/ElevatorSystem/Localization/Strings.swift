@@ -44,6 +44,10 @@ enum Strings {
         add("status.telnet.none",   "NONE",                                "AUCUNE")
         add("status.telnet.one",    "1 SESSION",                           "1 SESSION")
         add("status.telnet.many",   "%d SESSIONS",                         "%d SESSIONS")
+        add("status.modbus",        "MODBUS",                              "MODBUS")
+        add("status.modbus.none",   "NONE",                                "AUCUN")
+        add("status.modbus.one",    "1 CLIENT",                            "1 CLIENT")
+        add("status.modbus.many",   "%d CLIENTS",                          "%d CLIENTS")
         add("status.you",           "NODE",                                "NŒUD")
         add("status.ready",         "READY",                               "PRÊT")
 

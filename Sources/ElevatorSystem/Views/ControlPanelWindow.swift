@@ -170,6 +170,7 @@ private struct StatusStrip: View {
     @EnvironmentObject var language: AppLanguage
     @EnvironmentObject var network: PeerNetwork
     @EnvironmentObject var telnet: DCLTelnetServer
+    @EnvironmentObject var modbus: ModbusTCPServer
 
     var body: some View {
         HStack(spacing: 28) {
@@ -185,6 +186,9 @@ private struct StatusStrip: View {
             StatusLine(label: language.t("status.telnet"),
                        value: telnetValue,
                        valueColor: telnet.sessionCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
+            StatusLine(label: language.t("status.modbus"),
+                       value: modbusValue,
+                       valueColor: modbus.clientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
             Spacer()
             StatusLine(label: "STAT",
                        value: language.t("status.ready"),
@@ -209,6 +213,15 @@ private struct StatusStrip: View {
         case 0:  return language.t("status.telnet.none")
         case 1:  return language.t("status.telnet.one")
         default: return String(format: language.t("status.telnet.many"), count)
+        }
+    }
+
+    private var modbusValue: String {
+        let count = modbus.clientCount
+        switch count {
+        case 0:  return language.t("status.modbus.none")
+        case 1:  return language.t("status.modbus.one")
+        default: return String(format: language.t("status.modbus.many"), count)
         }
     }
 }
