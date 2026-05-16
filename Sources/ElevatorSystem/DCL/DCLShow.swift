@@ -18,6 +18,7 @@ extension DCLEngine {
         case matches(what, "NETWORK",     min: 3): return showNetwork()
         case matches(what, "QUEUE",       min: 4): return showQueue()
         case matches(what, "ALARMS",      min: 3): return showAlarms()
+        case matches(what, "DISPATCH",    min: 4): return showDispatch()
         case matches(what, "LOGICAL",     min: 3): return showLogical(cmd)
         case matches(what, "SYMBOL",      min: 3): return showSymbol(cmd)
         case matches(what, "ERROR",       min: 3): return showError()
@@ -40,6 +41,25 @@ extension DCLEngine {
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
         }
+    }
+
+    func showDispatch() -> String {
+        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
+        var s = "\n  Group dispatch mode: "
+        s += world.dispatchMode == .destination
+            ? "DESTINATION  (lobby keypad allocates per-call)\n"
+            : "COLLECTIVE   (per-cab queues, traditional hall buttons)\n"
+        if !world.destinationLog.isEmpty {
+            s += "\n  Recent destination-dispatch allocations:\n"
+            s += "    Seq   Time                     From  To   Cab        ETA\n"
+            s += "    ----  -----------------------  ----  ---  ---------  ------\n"
+            for c in world.destinationLog.prefix(10) {
+                let cab = c.cabLabel.padding(toLength: 9, withPad: " ", startingAt: 0)
+                s += String(format: "    %04d  %@  %4d  %3d  %@  %5.1fs\n",
+                            c.sequence, stamp(c.createdAt), c.from, c.to, cab, c.etaSeconds)
+            }
+        }
+        return s
     }
 
     func showAlarms() -> String {

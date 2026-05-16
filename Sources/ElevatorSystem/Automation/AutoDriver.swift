@@ -119,6 +119,11 @@ final class AutoDriver: ObservableObject {
             case .normal:
                 break
             }
+            // Destination dispatch: operators (or the lobby keypad)
+            // pre-allocate every trip via allocateDestination(), so the
+            // auto-driver stands down to avoid interleaving random
+            // destinations with the planned allocations.
+            if world.dispatchMode == .destination { continue }
             if elev.phaseTwoActive || elev.independentActive { continue }
             let due = nextDecisionAt[elev.id] ?? now
             if now >= due {

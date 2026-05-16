@@ -3,11 +3,16 @@ import Foundation
 // Cab-control verbs: CALL / OPEN / CLOSE / STOP.
 extension DCLEngine {
     func callCmd(_ cmd: Parsed) -> String {
-        // CALL CAB <label> FLOOR <n>      (or CALL <label> <n>)
+        // CALL DESTINATION /FROM=<n> /TO=<m>     (destination-dispatch)
+        // CALL CAB <label> FLOOR <n>             (collective)
+        // CALL <label> <n>                       (short collective)
         var args = cmd.positional
+        if args.first?.uppercased() == "DESTINATION" {
+            return callDestinationCmd(cmd)
+        }
         if args.first?.uppercased() == "CAB" { args.removeFirst() }
         guard args.count >= 2 else {
-            return "%CALL-W-MISSPARM, usage: CALL CAB <label> FLOOR <n>\n"
+            return "%CALL-W-MISSPARM, usage: CALL CAB <label> FLOOR <n>  or  CALL DESTINATION /FROM=<n> /TO=<m>\n"
         }
         let label = args[0]
         var floorTok = args[1]
@@ -28,6 +33,37 @@ extension DCLEngine {
         }
         _ = world.mutateLocal(cab.id) { e in e.enqueue(floor: floor) }
         return "%CALL-S-QUEUED, cab \(dLabel) queued for floor \(floor)\n"
+    }
+
+    /// CALL DESTINATION /FROM=<n> /TO=<m>
+    /// Destination-dispatch entry point: hands the call to
+    /// `world.allocateDestination`, which picks the best cab by ETA
+    /// plus same-direction bias and pre-loads its queue with origin
+    /// then destination.
+    func callDestinationCmd(_ cmd: Parsed) -> String {
+        guard let world else {
+            return "%SYSTEM-F-NOWORLD, elevator world not attached\n"
+        }
+        guard let fromStr = cmd.qualifierValue("FROM", min: 3),
+              let from = Int(fromStr) else {
+            return "%CALL-W-MISSFROM, usage: CALL DESTINATION /FROM=<n> /TO=<m>\n"
+        }
+        guard let toStr = cmd.qualifierValue("TO", min: 2),
+              let to = Int(toStr) else {
+            return "%CALL-W-MISSTO, usage: CALL DESTINATION /FROM=<n> /TO=<m>\n"
+        }
+        guard from >= Sim.firstFloor && from <= Sim.lastFloor,
+              to >= Sim.firstFloor && to <= Sim.lastFloor else {
+            return "%CALL-W-FLOORRNG, floor must be \(Sim.firstFloor)..\(Sim.lastFloor)\n"
+        }
+        guard from != to else {
+            return "%CALL-W-SAMEFLOOR, /FROM and /TO must differ\n"
+        }
+        guard let call = world.allocateDestination(from: from, to: to) else {
+            return "%CALL-W-NOAVAIL, no eligible cab to take that call\n"
+        }
+        return String(format: "%%CALL-S-ALLOC, dispatch #%04d  cab %@  FROM %d -> TO %d  ETA ~%.1fs\n",
+                      call.sequence, call.cabLabel, call.from, call.to, call.etaSeconds)
     }
 
     func openCmd(_ cmd: Parsed) -> String {

@@ -193,6 +193,9 @@ private struct StatusStrip: View {
             StatusLine(label: language.t("status.mode"),
                        value: modeValue,
                        valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
+            StatusLine(label: language.t("status.dispatch"),
+                       value: dispatchValue,
+                       valueColor: world.dispatchMode == .collective ? RetroTheme.green : RetroTheme.cyan)
             StatusLine(label: language.t("status.alarms"),
                        value: alarmValue,
                        valueColor: alarmColor)
@@ -237,6 +240,13 @@ private struct StatusStrip: View {
         case .normal:         return language.t("status.mode.normal")
         case .fireRecall:     return language.t("status.mode.fire")
         case .emergencyPower: return language.t("status.mode.epo")
+        }
+    }
+
+    private var dispatchValue: String {
+        switch world.dispatchMode {
+        case .collective:  return language.t("status.dispatch.coll")
+        case .destination: return language.t("status.dispatch.dest")
         }
     }
 

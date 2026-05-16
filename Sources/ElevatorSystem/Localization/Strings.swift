@@ -57,6 +57,9 @@ enum Strings {
         add("status.alarms",        "ALARMS",                              "ALARMES")
         add("status.alarms.normal", "NORMAL",                              "NORMAL")
         add("status.alarms.summary","%d ACTIVE / %d UNACK",                "%d ACTIVES / %d NON ACQ.")
+        add("status.dispatch",      "DISPATCH",                            "RÉGULATION")
+        add("status.dispatch.coll", "COLLECTIVE",                          "COLLECTIVE")
+        add("status.dispatch.dest", "DESTINATION",                         "DESTINATION")
 
         add("elev.cab",             "CAB",                                 "CABINE")
         add("elev.floor",           "FLOOR",                               "ÉTAGE")

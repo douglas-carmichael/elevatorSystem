@@ -45,6 +45,7 @@ import Network
 ///     106     Recall floor
 ///     107     Active SCADA alarm count
 ///     108     Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
+///     109     Dispatch mode (0=collective, 1=destination)
 @MainActor
 final class ModbusTCPServer: ObservableObject {
     @Published private(set) var port: UInt16?
@@ -480,6 +481,8 @@ final class ModbusClient {
         case 106: return UInt16(world?.recallFloor ?? Sim.firstFloor)
         case 107:                                   // Active alarm count
             return UInt16(min(0xFFFF, world?.activeAlarms.count ?? 0))
+        case 109:                                   // Dispatch mode
+            return world?.dispatchMode == .destination ? 1 : 0
         case 108:                                   // Highest active severity
             // 0 = no active alarms, 1..4 = Advisory / Minor / Major /
             // Critical. Lets a PLC HMI light a coloured beacon

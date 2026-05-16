@@ -37,6 +37,21 @@ extension DCLEngine {
             world.epoCabId = nil
             return "%CTRL-S-MODE, building returned to normal operation\n"
         }
+        if let disp = cmd.qualifierValue("DISPATCH", min: 4) {
+            let mode: DispatchMode
+            switch disp.uppercased() {
+            case "DESTINATION", "DEST":
+                mode = .destination
+            case "COLLECTIVE", "COLL":
+                mode = .collective
+            default:
+                return "%DCL-W-IVKEYW, /DISPATCH expects COLLECTIVE or DESTINATION\n"
+            }
+            world.dispatchMode = mode
+            return mode == .destination
+                ? "%CTRL-S-DISPATCH, destination dispatch enabled -- CALL DESTINATION /FROM=<n> /TO=<m>\n"
+                : "%CTRL-S-DISPATCH, collective control restored\n"
+        }
         if let fire = cmd.qualifierValue("FIRE_RECALL", min: 4)
                         ?? cmd.qualifierValue("FIRE", min: 4) {
             if let floorStr = cmd.qualifierValue("FLOOR", min: 3),

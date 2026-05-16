@@ -18,6 +18,38 @@ enum BuildingMode: String, Codable {
     case emergencyPower
 }
 
+/// Group-control strategy for the building.
+///
+///  * `collective`  -- traditional up/down hall calls + per-cab queues.
+///                     Riders press a direction button at the floor;
+///                     each cab serves whatever's on its queue.
+///  * `destination` -- modern "destination dispatch" (KONE PORT, Otis
+///                     Compass, Schindler PORT 4D). A single lobby
+///                     keypad takes the rider's destination floor and
+///                     the group dispatcher pre-allocates the best cab
+///                     before they board. There's no up/down split --
+///                     the algorithm picks one cab per call by ETA and
+///                     a small same-direction bias.
+enum DispatchMode: String, Codable {
+    case collective
+    case destination
+}
+
+/// One allocated destination-dispatch trip. Kept in
+/// ElevatorWorld.destinationLog as an audit trail so SHOW DISPATCH can
+/// display recent allocations and the lobby keypad UI can confirm what
+/// got assigned.
+struct DestinationCall: Identifiable, Codable, Hashable {
+    let id: UUID
+    let sequence: Int
+    let from: Int
+    let to: Int
+    let cabId: UUID
+    let cabLabel: String
+    let etaSeconds: Double
+    let createdAt: Date
+}
+
 enum AlarmSeverity: Int, Codable, CaseIterable, Comparable {
     case advisory = 0
     case minor = 1
@@ -73,6 +105,18 @@ final class ElevatorWorld: ObservableObject {
     /// the recall floor.
     @Published var epoCabId: UUID?
     @Published private(set) var alarmLog: [SCADAAlarm] = []
+
+    /// Current group-control strategy. Defaults to .collective so the
+    /// behaviour everyone is used to is preserved; flipping to
+    /// .destination switches the building into destination-dispatch
+    /// mode (auto-driver stands down, all CALL flow goes through
+    /// `allocateDestination`).
+    @Published var dispatchMode: DispatchMode = .collective
+    /// Most-recent destination-dispatch allocations (newest first).
+    /// SHOW DISPATCH and any lobby-keypad UI read this log; capped at
+    /// 20 entries to keep the table on-screen.
+    @Published private(set) var destinationLog: [DestinationCall] = []
+    private var nextDestinationSequence: Int = 1
 
     private var timer: Timer?
     private var lastTickAt: Date = .init()
@@ -497,6 +541,87 @@ final class ElevatorWorld: ObservableObject {
         guard let index = alarmLog.firstIndex(where: { $0.isActive && $0.source == source && $0.point == point }) else { return false }
         alarmLog[index].clearedAt = Date()
         return true
+    }
+
+    // MARK: -- Destination dispatch
+
+    /// Allocate a destination-dispatch call. Picks the locally-owned
+    /// cab with the lowest ETA to the origin floor (with a small
+    /// same-direction bias) and pre-loads its queue with origin then
+    /// destination so the rider is picked up first and dropped off
+    /// second. Returns the resulting DestinationCall, or nil if no
+    /// candidate cab is available (no local cabs, all are in Phase II
+    /// / Independent / fire-recall / EPO-stranded).
+    @discardableResult
+    func allocateDestination(from: Int, to: Int) -> DestinationCall? {
+        guard from != to else { return nil }
+        let f = max(Sim.firstFloor, min(Sim.lastFloor, from))
+        let t = max(Sim.firstFloor, min(Sim.lastFloor, to))
+        guard f != t else { return nil }
+        // Eligible cabs: locally-owned, not in a safety override, and
+        // (under EPO) only the survivor.
+        let candidates = elevators.filter { cab in
+            guard cab.ownerPeerId == localPeerId else { return false }
+            if cab.phaseTwoActive || cab.independentActive { return false }
+            switch buildingMode {
+            case .normal: return true
+            case .fireRecall: return false
+            case .emergencyPower: return cab.id == epoCabId
+            }
+        }
+        guard !candidates.isEmpty else { return nil }
+        var best: (cab: Elevator, score: Double, eta: Double)?
+        for cab in candidates {
+            let eta = estimatedSecondsToFloor(cab: cab, floor: f)
+            // Same-direction bias: if the cab is currently moving away
+            // from the origin call, add a soft 5-second penalty so a
+            // closer-but-wrong-direction cab loses to a slightly more
+            // distant cab that's already heading our way.
+            var score = eta
+            if cab.direction == .up && f < cab.nearestFloor { score += 5.0 }
+            if cab.direction == .down && f > cab.nearestFloor { score += 5.0 }
+            if best == nil || score < best!.score {
+                best = (cab, score, eta)
+            }
+        }
+        guard let pick = best else { return nil }
+        // Enqueue origin then destination so the cab picks the rider
+        // up before drop-off.
+        mutateLocal(pick.cab.id) { e in
+            e.enqueue(floor: f)
+            e.enqueue(floor: t)
+        }
+        let call = DestinationCall(id: UUID(),
+                                   sequence: nextDestinationSequence,
+                                   from: f,
+                                   to: t,
+                                   cabId: pick.cab.id,
+                                   cabLabel: displayLabel(for: pick.cab),
+                                   etaSeconds: pick.eta,
+                                   createdAt: Date())
+        nextDestinationSequence += 1
+        destinationLog.insert(call, at: 0)
+        if destinationLog.count > 20 {
+            destinationLog.removeLast(destinationLog.count - 20)
+        }
+        return call
+    }
+
+    /// Coarse ETA estimate: time to finish the cab's current queue
+    /// (treating each stop as ~1.5 s of dwell + travel at max profile
+    /// speed) plus the trip from the last queued floor to `floor`.
+    /// Good enough to rank candidate cabs; not a real motion model.
+    private func estimatedSecondsToFloor(cab: Elevator, floor: Int) -> Double {
+        var time = 0.0
+        var position = cab.position
+        let maxSpeed = cab.profile.travelFloorsPerSecond
+        let stops = cab.queue + [floor]
+        for stop in stops {
+            let dist = abs(Double(stop) - position)
+            time += dist / maxSpeed + 1.5
+            position = Double(stop)
+        }
+        return time
     }
 
     var remotePeerIds: [String] {

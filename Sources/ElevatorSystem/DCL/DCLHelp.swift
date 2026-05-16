@@ -32,8 +32,8 @@ extension DCLEngine {
             var s = "\n  SHOW <subcommand>\n"
             s += "      PROCESS [/ALL]   SYSTEM         USERS          DEVICES\n"
             s += "      MEMORY           TIME           NETWORK        QUEUE\n"
-            s += "      ALARMS           LOGICAL [/PROC]  SYMBOL [name]  ERROR\n"
-            s += "      STATUS\n"
+            s += "      ALARMS           DISPATCH         LOGICAL [/PROC]\n"
+            s += "      SYMBOL [name]    ERROR            STATUS\n"
             s += "      LICENSE          CPU            DEFAULT        QUOTA\n"
             s += "      PROTECTION       TERMINAL       WORKING_SET    VERSION\n"
             s += "      RMS_DEFAULT      INTRUSION      CLUSTER        CONNECTIONS\n"
@@ -57,7 +57,17 @@ extension DCLEngine {
             s += "      ON, NOON, VERIFY, NOVERIFY\n"
             return s
         case matches(t, "CALL"):
-            return "\n  CALL CAB <label> FLOOR <n>     Queue a floor call on the named cab.\n"
+            var s = "\n  CALL CAB <label> FLOOR <n>\n"
+            s += "      Queue a floor call on the named cab. Bypasses the group\n"
+            s += "      dispatcher -- the named cab serves the call directly.\n"
+            s += "\n  CALL DESTINATION /FROM=<n> /TO=<m>\n"
+            s += "      Destination-dispatch entry point. The group dispatcher picks\n"
+            s += "      the cab with the lowest ETA to <n> (with a small same-direction\n"
+            s += "      bias) and pre-loads its queue with origin then destination so\n"
+            s += "      the rider is picked up first and dropped off second.\n"
+            s += "      Requires  SET BUILDING /DISPATCH=DESTINATION  for the auto-\n"
+            s += "      driver to stand down and let the allocator manage every trip.\n"
+            return s
         case matches(t, "OPEN"):
             return "\n  OPEN CAB <label>               Request the cab's doors to open.\n"
         case matches(t, "CLOSE"):
