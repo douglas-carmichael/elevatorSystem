@@ -55,6 +55,7 @@ extension DCLEngine {
         monitorClass = cls
         monitorIntervalSec = interval
         monitorStartedAt = Date()
+        enterLiveScreen()
         refreshLiveDisplay()
         let t = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshLiveDisplay() }
@@ -65,20 +66,21 @@ extension DCLEngine {
     /// Stops whichever live-screen mode is active. Ctrl-Y in the DCL window
     /// triggers this.
     func stopMonitor(interrupt: Bool = true) {
-        guard liveTimer != nil || liveDisplay != nil else { return }
+        guard liveActive else { return }
         liveTimer?.invalidate()
         liveTimer = nil
         let wasTest: Bool
         if case .testUtility = liveMode { wasTest = true } else { wasTest = false }
         liveMode = .none
-        liveDisplay = nil
+        exitLiveScreen()
         if interrupt {
             if wasTest {
-                transcript += "\n%RUN-I-ABORTED, diagnostic was interrupted by Ctrl/Y\n"
+                out("%RUN-I-ABORTED, diagnostic was interrupted by Ctrl/Y\n")
             } else {
-                transcript += "\n%MONITOR-I-INTERRUPT, request was interrupted by Ctrl/Y\n"
+                out("%MONITOR-I-INTERRUPT, request was interrupted by Ctrl/Y\n")
             }
         }
+        out(prompt)
     }
 
     func refreshLiveDisplay() {
@@ -90,7 +92,25 @@ extension DCLEngine {
         s += "  From: \(stamp(monitorStartedAt))   To: \(stamp(now))\n"
         s += "  Elapsed: \(elapsed)   Interval: \(Int(monitorIntervalSec))s\n"
         s += "  Press  Ctrl/Y  to interrupt the request and return to the DCL prompt.\n"
-        liveDisplay = s
+        // CSI H = cursor home; CSI J = erase from cursor to end. The
+        // payload uses real CRLF so the terminal advances cleanly.
+        outRaw("\u{1B}[H" + s.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1B}[J")
+    }
+
+    /// Enter the VT220/320 alternate screen buffer so a continuous-monitor
+    /// or full-screen test utility can repaint without scrolling the
+    /// transcript.
+    func enterLiveScreen() {
+        liveActive = true
+        outRaw("\u{1B}[?1049h\u{1B}[2J\u{1B}[H")
+    }
+
+    /// Pop the alternate screen buffer. The terminal restores whatever
+    /// was on the screen before MONITOR / RUN started.
+    func exitLiveScreen() {
+        guard liveActive else { return }
+        liveActive = false
+        outRaw("\u{1B}[?1049l")
     }
 
     // MARK: -- formatting helpers shared by the MONITOR class renderers

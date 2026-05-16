@@ -10,6 +10,7 @@ extension DCLEngine {
         testCurrent = 0
         testResults = []
         testStartedAt = Date()
+        enterLiveScreen()
         refreshTestDisplay(complete: false)
         let t = Timer.scheduledTimer(withTimeInterval: 0.85, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickTestUtility() }
@@ -36,21 +37,26 @@ extension DCLEngine {
         let width = 78
         let now = Date()
 
+        // Build each row as a self-contained string with NO trailing newline.
+        // Newlines at the end of the last row will scroll the viewport (the
+        // cursor stepping off the bottom row pushes the top row into
+        // scrollback), which is exactly how the test-name row was vanishing
+        // from the screen. Instead, position each row absolutely with
+        // CUP (`ESC [ r ; 1 H`) so no \n ever leaves the bottom of the
+        // viewport, then `ESC [ J` wipes anything below.
         func boxLine(_ inner: String) -> String {
             let pad = max(0, width - 2 - inner.count)
-            return "│" + inner + String(repeating: " ", count: pad) + "│\n"
+            return "│" + inner + String(repeating: " ", count: pad) + "│"
         }
         func sep(left: String, right: String) -> String {
-            return left + String(repeating: "─", count: width - 2) + right + "\n"
+            return left + String(repeating: "─", count: width - 2) + right
         }
         func centered(_ s: String) -> String {
             let pad = max(0, (width - 2 - s.count) / 2)
             return String(repeating: " ", count: pad) + s
         }
 
-        let suiteTitle  = tr("diag.suite") + "    VSI OpenVMS " + osVersion
         let operatorLbl = tr("diag.operator")
-        let startedLbl  = tr("diag.started")
         let elapsedLbl  = tr("diag.elapsed")
         let runningWord = tr("diag.status.running")
         let queuedWord  = tr("diag.status.queued")
@@ -59,15 +65,11 @@ extension DCLEngine {
 
         let innerWidth = width - 2
 
-        var s = ""
-        s += sep(left: "┌", right: "┐")
-        s += boxLine(centered(suiteTitle))
-        s += boxLine(centered("\(name)    \(operatorLbl): \(username)"))
-        s += boxLine(centered("\(startedLbl): \(stamp(testStartedAt))"))
-        s += sep(left: "├", right: "┤")
-        s += boxLine("")
-        s += boxLine("  " + header)
-        s += boxLine("")
+        var rows: [String] = []
+        rows.append(sep(left: "┌", right: "┐"))
+        rows.append(boxLine(centered("\(name)    \(operatorLbl): \(username)")))
+        rows.append(sep(left: "├", right: "┤"))
+        rows.append(boxLine("  " + header))
 
         for (i, step) in testSteps.enumerated() {
             let label = step.label.padding(toLength: 42, withPad: " ", startingAt: 0)
@@ -83,11 +85,10 @@ extension DCLEngine {
                 reading = "".padding(toLength: 14, withPad: " ", startingAt: 0)
                 status  = queuedWord
             }
-            s += boxLine("  " + label + reading + " " + status)
+            rows.append(boxLine("  " + label + reading + " " + status))
         }
 
-        s += boxLine("")
-        s += sep(left: "├", right: "┤")
+        rows.append(sep(left: "├", right: "┤"))
 
         let elapsed = uptimeString(from: testStartedAt, to: now)
         let passWord = tr("diag.status.pass")
@@ -98,17 +99,25 @@ extension DCLEngine {
             }
             let resultLbl = allGood ? tr("diag.allpass") : tr("diag.seeresults")
             let completeLbl = String(format: tr("diag.complete"), testResults.count, testSteps.count)
-            s += boxLine("  \(completeLbl)  \(elapsedLbl) \(elapsed)  \(resultLbl)")
+            rows.append(boxLine("  \(completeLbl)  \(elapsedLbl) \(elapsed)  \(resultLbl)"))
             let hintPad = max(0, innerWidth - exitHint.count)
-            s += boxLine(String(repeating: " ", count: hintPad) + exitHint)
+            rows.append(boxLine(String(repeating: " ", count: hintPad) + exitHint))
         } else {
             let stepLbl = String(format: tr("diag.step.of"), testCurrent + 1, testSteps.count)
-            s += boxLine("  \(stepLbl)  \(elapsedLbl) \(elapsed)")
+            rows.append(boxLine("  \(stepLbl)  \(elapsedLbl) \(elapsed)"))
             let hintPad = max(0, innerWidth - abortHint.count)
-            s += boxLine(String(repeating: " ", count: hintPad) + abortHint)
+            rows.append(boxLine(String(repeating: " ", count: hintPad) + abortHint))
         }
-        s += sep(left: "└", right: "┘")
-        liveDisplay = s
+        rows.append(sep(left: "└", right: "┘"))
+
+        var s = ""
+        for (idx, row) in rows.enumerated() {
+            s += "\u{1B}[\(idx + 1);1H" + row
+        }
+        // Park the cursor below the last row before erasing -- erasing from
+        // mid-row would leave trailing cells of the hint row visible.
+        s += "\u{1B}[\(rows.count + 1);1H\u{1B}[J"
+        outRaw(s)
     }
 
     // MARK: -- diagnostic step lists
@@ -186,5 +195,129 @@ extension DCLEngine {
         startTestUtility(name: tr("diag.test.lamp"),
                          header: tr("diag.col.floor"),
                          steps: steps)
+    }
+
+    // MARK: -- diagnostic test selection menu (DECforms-style)
+
+    /// Pop a full-screen menu that lets the operator pick one of the
+    /// available diagnostic test utilities and run it. Lives in the
+    /// alternate screen buffer so leaving the menu restores whatever
+    /// was on the shell screen before.
+    func startDiagnosticMenu() {
+        liveTimer?.invalidate()
+        liveTimer = nil
+        // The lpd splash strings include a "RUN <image>" prefix, e.g.
+        // "  RUN BRAKE_TEST       Brake hold-force test on every cab".
+        // Strip it -- the menu already shows the image in its own column.
+        func descOf(_ key: String, image: String) -> String {
+            let raw = tr(key)
+            let needle = "RUN \(image)"
+            if let r = raw.range(of: needle) {
+                return raw[r.upperBound...]
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            return raw.trimmingCharacters(in: .whitespaces)
+        }
+        diagMenuItems = [
+            DiagMenuItem(image: "BRAKE_TEST",
+                         description: descOf("login.lpd.brake", image: "BRAKE_TEST"),
+                         runner: { [weak self] in self?.startBrakeTest() }),
+            DiagMenuItem(image: "DOOR_TEST",
+                         description: descOf("login.lpd.door", image: "DOOR_TEST"),
+                         runner: { [weak self] in self?.startDoorTest() }),
+            DiagMenuItem(image: "WEIGHT_CAL",
+                         description: descOf("login.lpd.weight", image: "WEIGHT_CAL"),
+                         runner: { [weak self] in self?.startWeightCal() }),
+            DiagMenuItem(image: "HALL_LAMP_TEST",
+                         description: descOf("login.lpd.lamp", image: "HALL_LAMP_TEST"),
+                         runner: { [weak self] in self?.startHallLampTest() })
+        ]
+        diagMenuSelection = 0
+        liveMode = .diagnosticMenu
+        enterLiveScreen()
+        refreshDiagnosticMenu()
+    }
+
+    /// Render the menu into the alternate buffer at known cell
+    /// coordinates so no part of it can scroll off the viewport.
+    func refreshDiagnosticMenu() {
+        guard case .diagnosticMenu = liveMode else { return }
+        let width = 78
+        let innerWidth = width - 2
+
+        func boxLine(_ inner: String) -> String {
+            let pad = max(0, innerWidth - inner.count)
+            return "│" + inner + String(repeating: " ", count: pad) + "│"
+        }
+        func sep(_ left: String, _ right: String) -> String {
+            return left + String(repeating: "─", count: innerWidth) + right
+        }
+        func centered(_ s: String) -> String {
+            let pad = max(0, (innerWidth - s.count) / 2)
+            return String(repeating: " ", count: pad) + s
+        }
+
+        var rows: [String] = []
+        rows.append(sep("┌", "┐"))
+        rows.append(boxLine(centered("ELEVATOR-CTRL Diagnostic Test Selection")))
+        rows.append(sep("├", "┤"))
+        rows.append(boxLine(""))
+        for (i, item) in diagMenuItems.enumerated() {
+            let marker = i == diagMenuSelection ? " ▶ " : "   "
+            let img    = item.image.padding(toLength: 16, withPad: " ", startingAt: 0)
+            rows.append(boxLine(marker + img + " " + item.description))
+        }
+        rows.append(boxLine(""))
+        rows.append(sep("├", "┤"))
+        rows.append(boxLine("  UP / DOWN to navigate    ENTER to run    Ctrl/Y to exit"))
+        rows.append(sep("└", "┘"))
+
+        var s = ""
+        for (idx, row) in rows.enumerated() {
+            s += "\u{1B}[\(idx + 1);1H" + row
+        }
+        s += "\u{1B}[\(rows.count + 1);1H\u{1B}[J"
+        outRaw(s)
+    }
+
+    /// Handle keystrokes routed to the menu by the line discipline.
+    /// Accepts an arrow-key escape sequence as raw bytes, plus single
+    /// control bytes for Enter / Ctrl-Y.
+    func handleDiagnosticMenuKey(_ bytes: [UInt8]) {
+        guard case .diagnosticMenu = liveMode else { return }
+        // Arrow keys arrive as ESC [ A (up), ESC [ B (down).
+        if bytes.count == 3, bytes[0] == 0x1B, bytes[1] == 0x5B {
+            switch bytes[2] {
+            case 0x41:      // up
+                if diagMenuSelection > 0 { diagMenuSelection -= 1 }
+                refreshDiagnosticMenu()
+            case 0x42:      // down
+                if diagMenuSelection < diagMenuItems.count - 1 { diagMenuSelection += 1 }
+                refreshDiagnosticMenu()
+            default:
+                break
+            }
+            return
+        }
+        guard let b = bytes.first else { return }
+        switch b {
+        case 0x0D, 0x0A:                                // Enter
+            let chosen = diagMenuItems[diagMenuSelection]
+            // Leave the menu but stay in live-screen mode -- the test
+            // utility we hand off to will repaint the same alt buffer.
+            liveMode = .none
+            chosen.runner()
+        case 0x03, 0x19:                                // Ctrl-C / Ctrl-Y
+            // Drop the menu without the "MONITOR was interrupted"
+            // message stopMonitor would print -- the menu was never a
+            // monitor session in the first place.
+            liveTimer?.invalidate()
+            liveTimer = nil
+            liveMode = .none
+            exitLiveScreen()
+            out(prompt)
+        default:
+            break
+        }
     }
 }

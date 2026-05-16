@@ -10,15 +10,29 @@ final class DCLEngine: ObservableObject {
     @Published var prompt: String = "$ "
     @Published var loggedOut: Bool = false
 
-    /// When non-nil, the DCL window paints this as a full-screen "terminal"
-    /// view, replacing the transcript and prompt. Used by continuous
-    /// MONITOR and by the RUN <diagnostic> test utilities.
-    @Published var liveDisplay: String? = nil
+    /// True while a continuous MONITOR or full-screen test utility owns
+    /// the terminal (alternate-screen buffer). Used by the keyboard
+    /// handler to decide whether Ctrl-Y should stop monitor or fall
+    /// through to ordinary line editing.
+    @Published var liveActive: Bool = false
+
+    /// Sink for output destined for the VT220/320 terminal view. Set by
+    /// the SwiftTerm bridge in VTShellView. Receives both plain text and
+    /// raw escape sequences. Bytes still land in `transcript` (without
+    /// escapes) so SELFTEST and unit tests can introspect output.
+    var outputHandler: ((String) -> Void)? {
+        didSet { flushPendingOutput() }
+    }
+
+    /// Output produced before a terminal is attached (e.g. the banner)
+    /// gets buffered here and flushed once `outputHandler` is wired.
+    private var pendingOutput: String = ""
 
     enum LiveMode {
         case none
         case monitor
         case testUtility(name: String, header: String)
+        case diagnosticMenu
     }
     var liveMode: LiveMode = .none
     var liveTimer: Timer?
@@ -36,6 +50,16 @@ final class DCLEngine: ObservableObject {
     var testCurrent: Int = 0
     var testResults: [(label: String, reading: String, status: String)] = []
     var testStartedAt: Date = Date()
+
+    // Diagnostic menu state -- see DCLDiagnostics.swift for the
+    // DECforms-style selector launched by `DIAGNOSE`.
+    struct DiagMenuItem {
+        let image: String           // e.g. "BRAKE_TEST"
+        let description: String
+        let runner: () -> Void
+    }
+    var diagMenuItems: [DiagMenuItem] = []
+    var diagMenuSelection: Int = 0
 
     weak var world: ElevatorWorld?
     weak var network: PeerNetwork?
@@ -111,21 +135,59 @@ final class DCLEngine: ObservableObject {
         self.automation = automation
         self.language = language
         // Render the banner now that the language reference is available.
-        transcript = banner() + lpdSplash()
+        transcript = ""
+        pendingOutput = ""
+        out(banner())
+        out(lpdSplash())
+        out(prompt)
+    }
+
+    // MARK: -- output sink
+
+    /// Emit human-readable output. Goes both to the transcript (so
+    /// SELFTEST / tests can introspect) and out to the attached
+    /// VT terminal view.
+    func out(_ text: String) {
+        transcript += text
+        if let h = outputHandler { h(text) }
+        else { pendingOutput += text }
+    }
+
+    /// Emit raw bytes (typically VT escape sequences) directly to the
+    /// terminal. They do NOT land in the transcript.
+    func outRaw(_ bytes: String) {
+        if let h = outputHandler { h(bytes) }
+        else { pendingOutput += bytes }
+    }
+
+    /// Drain anything buffered before the terminal attached. Always
+    /// replays the full transcript -- on first attach this delivers
+    /// the banner / splash / prompt that landed in `pendingOutput`,
+    /// and on subsequent attaches (the user closing the DCL window
+    /// then reopening it) it restores everything the previous session
+    /// had on screen instead of leaving the new terminal blank.
+    private func flushPendingOutput() {
+        guard let h = outputHandler else { return }
+        if !transcript.isEmpty {
+            h(transcript)
+        }
+        pendingOutput = ""
     }
 
     /// LPD ELEVATOR-CTRL layered-product splash printed after the OpenVMS
     /// login banner. Real OpenVMS sites typically print these from
-    /// SYS$MANAGER:SYLOGIN.COM after the system banner.
+    /// SYS$MANAGER:SYLOGIN.COM after the system banner. Kept tight on
+    /// blank lines so the entire boot sequence (banner + splash + prompt)
+    /// fits in a typical 20-row terminal viewport.
     func lpdSplash() -> String {
-        var s = "\n"
+        var s = ""
         s += "    " + tr("login.lpd.line1") + "\n"
-        s += "    " + tr("login.lpd.line2") + "\n\n"
+        s += "    " + tr("login.lpd.line2") + "\n"
         s += "    " + tr("login.lpd.brake")  + "\n"
         s += "    " + tr("login.lpd.door")   + "\n"
         s += "    " + tr("login.lpd.weight") + "\n"
-        s += "    " + tr("login.lpd.lamp")   + "\n\n"
-        s += "    " + tr("login.lpd.help") + "\n\n"
+        s += "    " + tr("login.lpd.lamp")   + "\n"
+        s += "    " + tr("login.lpd.help") + "\n"
         return s
     }
 
@@ -137,32 +199,46 @@ final class DCLEngine: ObservableObject {
         return lang.t(key)
     }
 
-    /// Single entry point for input from the DCL window. Echoes the line,
-    /// records it in the recall buffer, then either routes it to the EDT
-    /// editor (when active) or to the DCL command dispatcher.
+    /// Single entry point for input from the terminal line discipline.
+    /// The terminal has already echoed the keystrokes and emitted a CRLF;
+    /// we just execute the line and emit the next prompt.
     func submit(_ raw: String) {
         // EDT input mode swallows blank lines and the terminator ".".
         if editorActive {
-            appendPromptEcho(raw)
+            // Record the typed line in the transcript so SELFTEST and
+            // headless tests can introspect it even though the terminal
+            // already echoed it on screen.
+            transcript += "\(prompt)\(raw)\n"
             let body = runEditorLine(raw)
             if !body.isEmpty {
-                transcript += body
-                if !body.hasSuffix("\n") { transcript += "\n" }
+                out(body)
+                if !body.hasSuffix("\n") { out("\n") }
+            }
+            // INSERT mode runs without a "*" prompt before each line; the
+            // editor returns the prompt itself when input mode ends.
+            if !loggedOut && !editorInsertMode {
+                out(prompt)
             }
             return
         }
 
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        appendPromptEcho(line)
-        guard !line.isEmpty else { return }
+        transcript += "\(prompt)\(line)\n"
+        if line.isEmpty {
+            if !loggedOut && !liveActive { out(prompt) }
+            return
+        }
         if history.last != line {
             history.append(line)
             if history.count > maxHistory { history.removeFirst() }
         }
         let body = execute(line)
         if !body.isEmpty {
-            transcript += body
-            if !body.hasSuffix("\n") { transcript += "\n" }
+            out(body)
+            if !body.hasSuffix("\n") { out("\n") }
+        }
+        if !loggedOut && !liveActive {
+            out(prompt)
         }
     }
 
@@ -173,19 +249,21 @@ final class DCLEngine: ObservableObject {
         func t(_ key: String, _ args: CVarArg...) -> String {
             String(format: Strings.lookup(key, lang: lang), arguments: args)
         }
-        var s = "\n"
-        s += "            " + t("dcl.banner.welcome", osTitle, osVersion) + "\n"
-        s += "                            " + t("dcl.banner.onnode", nodeName) + "\n\n"
+        var s = ""
+        // Welcome + node folded onto one line, and the generic
+        // "Type HELP for a list" hint dropped (the LPD splash already
+        // ends with a more specific HELP RUN hint), so banner + splash
+        // + prompt fits in 12 viewport rows.
+        let welcome = t("dcl.banner.welcome", osTitle, osVersion)
+        let onnode  = t("dcl.banner.onnode", nodeName)
+        s += "    " + welcome + "   " + onnode + "\n"
         s += "    " + t("dcl.banner.lastinter", stamp(bootTime)) + "\n"
-        s += "    " + t("dcl.banner.lastnon", stamp(bootTime.addingTimeInterval(-43200))) + "\n\n"
+        s += "    " + t("dcl.banner.lastnon", stamp(bootTime.addingTimeInterval(-43200))) + "\n"
         s += "    *** " + t("dcl.banner.shelltag", "ELEVATOR$ROOT:[\(username)]") + " ***\n"
-        s += "    " + t("dcl.banner.help") + "\n\n"
         return s
     }
 
-    func appendPromptEcho(_ s: String) {
-        transcript += "\(prompt)\(s)\n"
-    }
+
 
     // MARK: -- parsed line
 
@@ -306,7 +384,10 @@ final class DCLEngine: ObservableObject {
         case matches(head, "OPEN"):                           return openCmd(cmd)
         case matches(head, "CLOSE"):                          return closeCmd(cmd)
         case matches(head, "STOP"):                           return stopCmd(cmd)
-        case matches(head, "CLEAR"):                          transcript = ""; return ""
+        case matches(head, "CLEAR"):
+            transcript = ""
+            outRaw("\u{1B}[2J\u{1B}[H")
+            return ""
         case matches(head, "SELFTEST", min: 4):               return selfTest()
         case matches(head, "LOGOUT") || matches(head, "EXIT"):
             loggedOut = true
@@ -314,6 +395,12 @@ final class DCLEngine: ObservableObject {
 
         // Operator-level verbs.
         case matches(head, "RUN"):                            return runCmd(cmd)
+        case matches(head, "DIAGNOSE", min: 4):
+            if dryRun {
+                return "%DIAG-I-DRYRUN, would open diagnostic test menu\n"
+            }
+            startDiagnosticMenu()
+            return ""
         case matches(head, "ANALYZE", min: 4):                return analyzeCmd(cmd)
         case matches(head, "MOUNT"):                          return mountCmd(cmd)
         case matches(head, "DISMOUNT", min: 4):               return dismountCmd(cmd)

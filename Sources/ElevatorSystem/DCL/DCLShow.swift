@@ -34,6 +34,7 @@ extension DCLEngine {
         case matches(what, "CLUSTER",     min: 3): return showCluster()
         case matches(what, "CONNECTIONS", min: 4): return showConnections()
         case matches(what, "AUDIT",       min: 3): return showAudit()
+        case matches(what, "DIAGNOSTICS", min: 4): return showDiagnostics()
         default:
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
@@ -450,5 +451,24 @@ extension DCLEngine {
 
     func showAudit() -> String {
         return "\nSystem security audit characteristics:\n  Security alarm failure mode = NONE\n  Security audit failure mode = NONE\n  (no recent audit events)\n"
+    }
+
+    /// Lists the layered-product diagnostic test utilities the operator
+    /// can launch via `RUN <name>` or the interactive `DIAGNOSE` menu.
+    func showDiagnostics() -> String {
+        var s = "\nELEVATOR-CTRL Diagnostic Suite -- LPD-DIAG V1.4\n"
+        s += "    " + "Image".padding(toLength: 16, withPad: " ", startingAt: 0)
+        s += "Description\n"
+        s += "    " + String(repeating: "-", count: 16) + " " + String(repeating: "-", count: 60) + "\n"
+        s += "    " + "BRAKE_TEST".padding(toLength: 16, withPad: " ", startingAt: 0)
+        s += tr("login.lpd.brake") + "\n"
+        s += "    " + "DOOR_TEST".padding(toLength: 16, withPad: " ", startingAt: 0)
+        s += tr("login.lpd.door") + "\n"
+        s += "    " + "WEIGHT_CAL".padding(toLength: 16, withPad: " ", startingAt: 0)
+        s += tr("login.lpd.weight") + "\n"
+        s += "    " + "HALL_LAMP_TEST".padding(toLength: 16, withPad: " ", startingAt: 0)
+        s += tr("login.lpd.lamp") + "\n"
+        s += "\nLaunch with    RUN <image>    or    DIAGNOSE    for an interactive menu.\n"
+        return s
     }
 }
