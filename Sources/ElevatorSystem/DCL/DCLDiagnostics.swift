@@ -310,7 +310,10 @@ extension DCLEngine {
             let chosen = diagMenuItems[diagMenuSelection]
             // Leave the menu but stay in live-screen mode -- the test
             // utility we hand off to will repaint the same alt buffer.
+            // Mark the run so stopMonitor pops back here instead of the
+            // DCL prompt when the operator dismisses the finished test.
             liveMode = .none
+            diagInvokedFromMenu = true
             chosen.runner()
         case 0x03, 0x19:                                // Ctrl-C / Ctrl-Y
             // Drop the menu without the "MONITOR was interrupted"

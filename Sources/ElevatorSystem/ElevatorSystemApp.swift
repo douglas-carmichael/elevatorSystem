@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct ElevatorSystemApp: App {
@@ -54,6 +55,10 @@ struct ElevatorSystemApp: App {
 
     private func bootstrap() {
         guard world.elevators.isEmpty else { return }
+        if let other = otherRunningInstance() {
+            refuseDuplicateLaunch(other: other)
+            return
+        }
         let mine = Elevator.newAt(floor: Sim.firstFloor,
                                    label: "01",
                                    ownerPeerId: world.localPeerId,
@@ -65,5 +70,34 @@ struct ElevatorSystemApp: App {
         automation.attach(world: world, network: network)
         automation.start()
         dcl.attach(world: world, network: network, automation: automation, language: language)
+    }
+
+    /// Looks for another running ElevatorSystem process on this Mac.
+    /// Catches the Xcode-launched-while-Finder-copy-runs case that
+    /// LSMultipleInstancesProhibited misses, and prevents MONITOR CLUSTER
+    /// from showing the same Mac as two phantom nodes.
+    private func otherRunningInstance() -> NSRunningApplication? {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return nil }
+        let mine = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            .first { $0.processIdentifier != mine }
+    }
+
+    private func refuseDuplicateLaunch(other: NSRunningApplication) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Another ElevatorSystem instance is already running"
+        let pid = other.processIdentifier
+        alert.informativeText = """
+            Only one DCL node may run on this Mac at a time. The existing \
+            instance (pid \(pid)) will keep running; this launch will quit.
+            """
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Activate Existing")
+        let response = alert.runModal()
+        if response == .alertSecondButtonReturn {
+            other.activate(options: [.activateIgnoringOtherApps])
+        }
+        NSApp.terminate(nil)
     }
 }

@@ -5,6 +5,7 @@ enum PeerOp: String, Codable {
     case state
     case remove
     case bye
+    case stats
 }
 
 struct PeerMessage: Codable {
@@ -13,21 +14,26 @@ struct PeerMessage: Codable {
     var label: String?
     var elevator: Elevator?
     var elevatorId: UUID?
+    var snapshot: HostStats.HostSnapshot?
 
     static func hello(peerId: String, label: String) -> PeerMessage {
-        PeerMessage(op: .hello, peerId: peerId, label: label, elevator: nil, elevatorId: nil)
+        PeerMessage(op: .hello, peerId: peerId, label: label, elevator: nil, elevatorId: nil, snapshot: nil)
     }
 
     static func state(_ elevator: Elevator) -> PeerMessage {
-        PeerMessage(op: .state, peerId: nil, label: nil, elevator: elevator, elevatorId: nil)
+        PeerMessage(op: .state, peerId: nil, label: nil, elevator: elevator, elevatorId: nil, snapshot: nil)
     }
 
     static func remove(_ id: UUID) -> PeerMessage {
-        PeerMessage(op: .remove, peerId: nil, label: nil, elevator: nil, elevatorId: id)
+        PeerMessage(op: .remove, peerId: nil, label: nil, elevator: nil, elevatorId: id, snapshot: nil)
     }
 
     static func bye(peerId: String) -> PeerMessage {
-        PeerMessage(op: .bye, peerId: peerId, label: nil, elevator: nil, elevatorId: nil)
+        PeerMessage(op: .bye, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: nil)
+    }
+
+    static func stats(peerId: String, snapshot: HostStats.HostSnapshot) -> PeerMessage {
+        PeerMessage(op: .stats, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: snapshot)
     }
 }
 

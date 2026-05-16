@@ -60,6 +60,11 @@ final class DCLEngine: ObservableObject {
     }
     var diagMenuItems: [DiagMenuItem] = []
     var diagMenuSelection: Int = 0
+    /// True while a diagnostic test is running that was launched from the
+    /// DIAGNOSE menu (versus a bare `RUN BRAKE_TEST`). `stopMonitor` reads
+    /// this to decide whether to drop to the DCL prompt or re-show the menu
+    /// when the operator hits Ctrl/Y after a test completes or aborts.
+    var diagInvokedFromMenu: Bool = false
 
     weak var world: ElevatorWorld?
     weak var network: PeerNetwork?

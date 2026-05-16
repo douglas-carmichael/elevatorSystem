@@ -72,6 +72,19 @@ extension DCLEngine {
         let wasTest: Bool
         if case .testUtility = liveMode { wasTest = true } else { wasTest = false }
         liveMode = .none
+
+        // If the test was launched from the DIAGNOSE menu, pop back to
+        // the menu instead of dropping to the DCL prompt. The alt-screen
+        // buffer is already active, so we just repaint over the
+        // finished test view -- no exit / re-enter needed, and no
+        // "%RUN-I-ABORTED" message (it would only be visible after the
+        // operator later left the menu).
+        if wasTest && diagInvokedFromMenu {
+            diagInvokedFromMenu = false
+            startDiagnosticMenu()
+            return
+        }
+
         exitLiveScreen()
         if interrupt {
             if wasTest {
@@ -92,9 +105,11 @@ extension DCLEngine {
         s += "  From: \(stamp(monitorStartedAt))   To: \(stamp(now))\n"
         s += "  Elapsed: \(elapsed)   Interval: \(Int(monitorIntervalSec))s\n"
         s += "  Press  Ctrl/Y  to interrupt the request and return to the DCL prompt.\n"
-        // CSI H = cursor home; CSI J = erase from cursor to end. The
-        // payload uses real CRLF so the terminal advances cleanly.
-        outRaw("\u{1B}[H" + s.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1B}[J")
+        // CSI H = cursor home; CSI 0 m resets any leftover SGR attribute
+        // from the rendered body (reverse/bold around the banner) so the
+        // erase-to-end painted by CSI J uses normal video; CRLF is needed
+        // because the alternate screen buffer doesn't do auto-CR on LF.
+        outRaw("\u{1B}[H" + s.replacingOccurrences(of: "\n", with: "\r\n") + "\u{1B}[0m\u{1B}[J")
     }
 
     /// Enter the VT220/320 alternate screen buffer so a continuous-monitor
@@ -132,18 +147,32 @@ extension DCLEngine {
     }
 
     func mheader(_ title: String) -> String {
+        // Real OpenVMS MONITOR renders the utility banner and the class
+        // title in reverse video via SMG$. SGR 7 / SGR 27 (DEC private
+        // mode) toggle that on/off; SwiftTerm interprets these correctly.
         var s = "\n"
-        s += "                            \(osTitle) Monitor Utility\n"
-        s += centered("+ + + + + + + + + + + + + + \(title) + + + + + + + + + + + + + +") + "\n"
+        s += reverseCentered("\(osTitle) Monitor Utility") + "\n"
+        s += reverseCentered("+ + + + + + + + + + + + + + \(title) + + + + + + + + + + + + + +") + "\n"
         s += centered("on node \(nodeName)") + "\n"
         s += centered(stamp(Date())) + "\n\n"
         return s
     }
 
     func mcolHeader() -> String {
-        return mlabel("") +
-               mvalHeader("CUR") + mvalHeader("AVE") +
-               mvalHeader("MIN") + mvalHeader("MAX") + "\n\n"
+        // Column headers (CUR / AVE / MIN / MAX) in bold to match the
+        // attribute SMG$ applies on real VMS displays.
+        let row = mlabel("") +
+                  mvalHeader("CUR") + mvalHeader("AVE") +
+                  mvalHeader("MIN") + mvalHeader("MAX")
+        return "\u{1B}[1m" + row + "\u{1B}[22m" + "\n\n"
+    }
+
+    /// Centers `s` in `width` columns and wraps the visible text (not the
+    /// leading padding) in SGR-7 reverse-video so the highlight matches
+    /// exactly the printable banner length, not the whole row.
+    func reverseCentered(_ s: String, width: Int = 80) -> String {
+        let pad = max(0, (width - s.count) / 2)
+        return String(repeating: " ", count: pad) + "\u{1B}[7m" + s + "\u{1B}[27m"
     }
 
     func mlabel(_ s: String) -> String {
@@ -186,8 +215,9 @@ extension DCLEngine {
         let intr   = usage.system * 0.05
         let user   = usage.user + usage.nice
         let procCount = host.processCount()
-        let vm = host.vmStats()
-        let activeMod = Double(vm.activePages % 4096) / 100.0
+        let rates = host.vmRates()
+        let disks = host.diskRates()
+        let totalDiskOps = disks.reduce(0.0) { $0 + $1.totalOpsPerSec }
 
         var s = mheader("SYSTEM STATISTICS")
         s += mcolHeader()
@@ -201,11 +231,11 @@ extension DCLEngine {
         s += mrow("Idle Time",                  usage.idle)
         s += "\n"
         s += mrowi("Process Count",             procCount)
-        s += mrow("Page Fault Rate",            activeMod)
-        s += mrow("Page Read I/O Rate",         activeMod * 0.05)
-        s += mrow("Page Write I/O Rate",        activeMod * 0.01)
-        s += mrow("Direct I/O Rate",            12.4 + Double(vm.freePages % 100) / 100.0)
-        s += mrow("Buffered I/O Rate",          48.21 + Double(vm.activePages % 100) / 50.0)
+        s += mrow("Page Fault Rate",            rates.pageFaultRate)
+        s += mrow("Page Read I/O Rate",         rates.pageInRate)
+        s += mrow("Page Write I/O Rate",        rates.pageOutRate)
+        s += mrow("Direct I/O Rate",            totalDiskOps)
+        s += mrow("Buffered I/O Rate",          rates.lookupRate)
         return s
     }
 
@@ -261,46 +291,56 @@ extension DCLEngine {
     }
 
     func monitorIO() -> String {
-        let vm = host.vmStats()
-        let pf = Double(vm.activePages % 4096) / 100.0
+        let rates = host.vmRates()
+        let disks = host.diskRates()
+        let totalOps = disks.reduce(0.0) { $0 + $1.totalOpsPerSec }
+        let totalReadOps = disks.reduce(0.0) { $0 + $1.readOpsPerSec }
+        let totalWriteOps = disks.reduce(0.0) { $0 + $1.writeOpsPerSec }
+        // Total cache lookups/sec stands in for the VMS Buffered I/O Rate
+        // (per-process buffered I/O isn't broken out at the Mach layer).
+        let bufIO = rates.lookupRate
+        // Window turn rate has no direct Mac analogue; use reactivations
+        // (pages reclaimed from the inactive list) which is the closest
+        // "page-table fixup" event Mach exposes.
+        let windowTurn = rates.reactivationRate
         var s = mheader("I/O SYSTEM STATISTICS")
         s += mcolHeader()
-        s += mrow("Direct I/O Rate",             12.4 + Double(vm.freePages % 100) / 100.0)
-        s += mrow("Buffered I/O Rate",           48.21 + Double(vm.activePages % 100) / 50.0)
-        s += mrow("Mailbox Write Rate",          4.10)
-        s += mrow("Split Transfer Rate",         0.20)
-        s += mrow("Log Name Translation Rate",   8.40)
-        s += mrow("File Open Rate",              0.40)
-        s += mrow("Page Fault Rate",             pf)
-        s += mrow("Page Read Rate",              pf * 0.30)
-        s += mrow("Page Read I/O Rate",          pf * 0.05)
-        s += mrow("Page Write Rate",             pf * 0.10)
-        s += mrow("Page Write I/O Rate",         pf * 0.01)
+        s += mrow("Direct I/O Rate",             totalOps)
+        s += mrow("Buffered I/O Rate",           bufIO)
+        s += mrow("Mailbox Write Rate",          0.0)
+        s += mrow("Split Transfer Rate",         0.0)
+        s += mrow("Log Name Translation Rate",   rates.hitRate)
+        s += mrow("File Open Rate",              0.0)
+        s += mrow("Page Fault Rate",             rates.pageFaultRate)
+        s += mrow("Page Read Rate",              rates.pageInRate)
+        s += mrow("Page Read I/O Rate",          totalReadOps)
+        s += mrow("Page Write Rate",             rates.pageOutRate)
+        s += mrow("Page Write I/O Rate",         totalWriteOps)
         s += mrow("Inswap Rate",                 0.0)
-        s += mrow("Free List Fault Rate",        0.40)
-        s += mrow("Modified List Fault Rate",    0.04)
-        s += mrow("Demand Zero Fault Rate",      pf * 0.25)
-        s += mrow("System Fault Rate",           0.04)
-        s += mrow("Window Turn Rate",            0.0)
+        s += mrow("Free List Fault Rate",        rates.reactivationRate)
+        s += mrow("Modified List Fault Rate",    rates.pageOutRate)
+        s += mrow("Demand Zero Fault Rate",      rates.zeroFillRate)
+        s += mrow("System Fault Rate",           rates.copyOnWriteRate)
+        s += mrow("Window Turn Rate",            windowTurn)
         return s
     }
 
     func monitorPage() -> String {
         let vm = host.vmStats()
-        let pf = Double(vm.activePages % 4096) / 100.0
+        let rates = host.vmRates()
         var s = mheader("PAGE MANAGEMENT STATISTICS")
         s += mcolHeader()
-        s += mrow("Page Fault Rate",             pf)
-        s += mrow("Page Read Rate",              pf * 0.30)
-        s += mrow("Page Read I/O Rate",          pf * 0.05)
-        s += mrow("Page Write Rate",             pf * 0.10)
-        s += mrow("Page Write I/O Rate",         pf * 0.01)
-        s += mrow("Free List Fault Rate",        0.40)
-        s += mrow("Modified List Fault Rate",    0.04)
-        s += mrow("Demand Zero Fault Rate",      pf * 0.25)
-        s += mrow("Global Valid Fault Rate",     pf * 0.05)
+        s += mrow("Page Fault Rate",             rates.pageFaultRate)
+        s += mrow("Page Read Rate",              rates.pageInRate)
+        s += mrow("Page Read I/O Rate",          rates.pageInRate)
+        s += mrow("Page Write Rate",             rates.pageOutRate)
+        s += mrow("Page Write I/O Rate",         rates.pageOutRate)
+        s += mrow("Free List Fault Rate",        rates.reactivationRate)
+        s += mrow("Modified List Fault Rate",    rates.pageOutRate)
+        s += mrow("Demand Zero Fault Rate",      rates.zeroFillRate)
+        s += mrow("Global Valid Fault Rate",     rates.hitRate)
         s += mrow("Wrt In Progress Fault Rate",  0.0)
-        s += mrow("System Fault Rate",           0.04)
+        s += mrow("System Fault Rate",           rates.copyOnWriteRate)
         s += "\n"
         s += String(format: "%@%11lld pages\n", mlabel("Free List Size"),     vm.freePages)
         s += String(format: "%@%11lld pages\n", mlabel("Modified List Size"), vm.inactivePages)
@@ -335,16 +375,27 @@ extension DCLEngine {
     func monitorDisk() -> String {
         var s = mheader("DISK I/O STATISTICS")
         s += mcolHeader()
-
-        struct D { let name: String; let cur: Double }
-        let disks: [D] = [
-            D(name: "_$1$DUA0: (CAB$DKA0)",     cur: 12.4),
-            D(name: "_$1$DUA1: (CAB$DKA1)",     cur: 3.1),
-            D(name: "_$2$DUB0: (DOORS$DKB0)",   cur: 1.2),
-            D(name: "_$2$DUB1: (EVTLOG$DKB1)",  cur: 0.8),
-        ]
-        for d in disks {
-            s += mrow(d.name, d.cur)
+        // Show one row per mounted volume so MONITOR DISK lines up exactly
+        // with the device list in SHOW DEVICES. Each volume's rate is
+        // pulled from `diskRate(forBSD:)`, which walks up the IORegistry
+        // to find the underlying IOBlockStorageDriver -- so an APFS
+        // volume mounted on `disk3s3s1` correctly reports the rate of
+        // the physical SSD (`disk0`) underneath.
+        let volumes = host.mountedVolumes()
+        if volumes.isEmpty {
+            s += mrow("(no mounted volumes)", 0.0)
+            return s
+        }
+        for (idx, vol) in volumes.enumerated() {
+            let opsPerSec: Double
+            if let bsd = vol.bsdName, let r = host.diskRate(forBSD: bsd) {
+                opsPerSec = r.totalOpsPerSec
+            } else {
+                opsPerSec = 0.0
+            }
+            let label = vol.bsdName ?? "?"
+            let vmsName = String(format: "_$1$DUA%d: (%@)", idx, label)
+            s += mrow(vmsName, opsPerSec)
         }
         return s
     }
@@ -373,17 +424,29 @@ extension DCLEngine {
     func monitorCluster() -> String {
         var s = mheader("CLUSTER STATISTICS")
         s += "Node           CPU Busy    BIO Rate    DIO Rate     Mem Use    Lock Rate\n\n"
-        let busy = host.cpuUsage().busy
+        // Local node: pulled from HostStats directly.
+        let local = host.snapshot()
         let nodePad = nodeName.padding(toLength: 12, withPad: " ", startingAt: 0)
         s += String(format: "%@   %6.2f      %6.2f      %6.2f      %5.1f%%      %6.2f\n",
-                    nodePad, busy, 48.21, 12.4,
-                    100.0 - (Double(host.vmStats().freePages) * 100.0 / Double(max(1, host.vmStats().totalPages))),
-                    4.21)
+                    nodePad,
+                    local.cpuBusy, local.bufferedIORate, local.directIORate,
+                    local.memUsedPercent, local.lockRate)
+        // Remote nodes: snapshots that peers broadcast every 5s.
+        let snapshots = network?.peerStats ?? [:]
         for peer in network?.peers ?? [] {
             let nm = String(peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
             let nmPad = nm.padding(toLength: 12, withPad: " ", startingAt: 0)
-            s += String(format: "%@   %6.2f      %6.2f      %6.2f      %5.1f%%      %6.2f\n",
-                        nmPad, busy * 0.7, 22.10, 8.10, 41.0, 1.10)
+            if let snap = snapshots[peer.id] {
+                s += String(format: "%@   %6.2f      %6.2f      %6.2f      %5.1f%%      %6.2f\n",
+                            nmPad,
+                            snap.cpuBusy, snap.bufferedIORate, snap.directIORate,
+                            snap.memUsedPercent, snap.lockRate)
+            } else {
+                // Connected but no snapshot has arrived yet (under 5s old or
+                // the peer is a pre-stats build).
+                let dash = rightPad("--", width: 6)
+                s += "\(nmPad)   \(dash)      \(dash)      \(dash)      \(rightPad("--", width: 6))      \(dash)\n"
+            }
         }
         return s
     }

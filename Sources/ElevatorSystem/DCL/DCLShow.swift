@@ -125,12 +125,15 @@ extension DCLEngine {
     func showUsers() -> String {
         var s = "\n       OpenVMS User Processes at \(stamp(Date()))\n"
         s += "       Total number of users = \(1 + (network?.peers.count ?? 0)), number of processes = \((world?.elevators.count ?? 0) + 4)\n\n"
-        s += "  Username     Process Name        PID    Terminal\n"
+        // Column widths: Username 12, Process Name 20, PID 8, Terminal n.
+        // Header pads each label to match the data field widths.
+        s += "  Username     Process Name         PID      Terminal\n"
         s += "  \(username.padding(toLength: 12, withPad: " ", startingAt: 0)) DCL_\(username.prefix(12).padding(toLength: 16, withPad: " ", startingAt: 0)) \(pid) \(terminalName)\n"
         for (i, peer) in (network?.peers ?? []).enumerated() {
             let upper = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
             let uname = String(upper.prefix(12)).padding(toLength: 12, withPad: " ", startingAt: 0)
-            let pname = ("DCL_" + upper.prefix(12)).padding(toLength: 16, withPad: " ", startingAt: 0)
+            // Match the local-row format: "DCL_" + (name padded to 16) = 20 chars.
+            let pname = "DCL_" + String(upper.prefix(12)).padding(toLength: 16, withPad: " ", startingAt: 0)
             let ppid = String(format: "%08X", 0x0500 + i)
             s += "  \(uname) \(pname) \(ppid) TT$NTA00\(i + 1):\n"
         }
@@ -217,7 +220,7 @@ extension DCLEngine {
                 s += "  \(addr.padding(toLength: 8, withPad: " ", startingAt: 0)) REACHABLE                1       \(2 + i)      1      1  \(nm)\n"
             }
         } else {
-            s += "  -        -                        -       -      -      -  (no adjacent nodes)\n"
+            s += "  -        -                           -       -      -      -  (no adjacent nodes)\n"
         }
         return s
     }
@@ -310,11 +313,14 @@ extension DCLEngine {
         var s = "\nERROR LOG SUMMARY -- last 5 entries\n"
         s += "   Sequence  Date / Time             Source           Code           Detail\n"
         s += "   ---------+------------------------+----------------+--------------+-----------------------------------\n"
-        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-2400)))  CAB_03_DOORS     %X0000002C     DOOR SVC TIMEOUT, retried (success)\n", baseSeq + 0)
-        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1820)))  COMM_NETSRV      %X00000018     PEER UNREACHABLE: ASCEN3::ROOM3\n", baseSeq + 11)
-        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1100)))  CAB_01_BRAKE     %X00000004     INFO: routine brake test PASS\n", baseSeq + 20)
-        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-220)))  DOOR_SVC_03      %X00000040     PAGE FAULT FLOOD, throttling\n", baseSeq + 31)
-        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-12)))  BONJOUR_PUBSRV   %X00000001     SS$_NORMAL, service re-announced\n", baseSeq + 40)
+        // %%X escapes %% so printf emits a literal "%X" -- without the escape
+        // printf treats %X as a hex specifier and reads uninitialized memory
+        // for the missing argument, printing garbage where the code should be.
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-2400)))  CAB_03_DOORS     %%X0000002C     DOOR SVC TIMEOUT, retried (success)\n", baseSeq + 0)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1820)))  COMM_NETSRV      %%X00000018     PEER UNREACHABLE: ASCEN3::ROOM3\n", baseSeq + 11)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-1100)))  CAB_01_BRAKE     %%X00000004     INFO: routine brake test PASS\n", baseSeq + 20)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-220)))  DOOR_SVC_03      %%X00000040     PAGE FAULT FLOOD, throttling\n", baseSeq + 31)
+        s += String(format: "    %7d  \(stamp(Date().addingTimeInterval(-12)))  BONJOUR_PUBSRV   %%X00000001     SS$_NORMAL, service re-announced\n", baseSeq + 40)
         return s
     }
 
@@ -371,9 +377,14 @@ extension DCLEngine {
     }
 
     func showQuota() -> String {
-        let used = 15000, authorized = 65000
-        let available = authorized - used
-        let overdraft = 1000
+        // Real boot-volume capacity in 512-byte VMS blocks. "Used" is total
+        // minus free; "authorized" is the whole volume; overdraft mirrors
+        // VMS's small soft cushion.
+        let boot = host.bootVolume()
+        let authorized = boot?.totalBlocks ?? 0
+        let available  = boot?.freeBlocks  ?? 0
+        let used = max(0, authorized - available)
+        let overdraft = max(1024, authorized / 4096)
         var s = "\nUser [ELEVATOR,\(username)] has \(used) blocks used, \(available) available,\n"
         s += "   of \(authorized) authorized and permitted overdraft of \(overdraft) blocks on \(defaultDevice)\n"
         return s
@@ -404,8 +415,17 @@ extension DCLEngine {
     }
 
     func showWorkingSet() -> String {
-        var s = "\nWorking Set     /Limit=\(2048)  /Quota=\(8192)  /Extent=\(16384)\n"
-        s += "Adjustment enabled    Authorized Quota=\(8192)   Authorized Extent=\(16384)\n"
+        // Resident size of this process from task_info; quota/extent are
+        // expressed as multiples of the live working set so the VMS-style
+        // /Limit, /Quota, /Extent triple is anchored to a real measurement.
+        let ws = host.workingSet()
+        let resident = Int(ws.residentPages)
+        let limit  = max(2048, resident)
+        let quota  = max(limit * 2,  8192)
+        let extent = max(quota * 2, 16384)
+        var s = "\nWorking Set     /Limit=\(limit)  /Quota=\(quota)  /Extent=\(extent)\n"
+        s += "Adjustment enabled    Authorized Quota=\(quota)   Authorized Extent=\(extent)\n"
+        s += "Current size:   \(resident) pages   (\(ws.residentBytes / 1024) KB resident)\n"
         return s
     }
 
@@ -434,7 +454,7 @@ extension DCLEngine {
         let bar = String(repeating: "─", count: w - 2)
         var s = "\n              View of Cluster from system ID 1025  node: \(nodeName)\n"
         s += "┌\(bar)┐\n"
-        s += "│        SYSTEMS               │\n"
+        s += "│            SYSTEMS            │\n"
         s += "│   NODE      SOFTWARE   STATUS │\n"
         s += "├\(bar)┤\n"
         s += "│  \(nodeName.padding(toLength: 8, withPad: " ", startingAt: 0))  VMS V\(osVersion.dropFirst())  MEMBER │\n"

@@ -18,11 +18,18 @@ enum PeerNetworkState: String {
 final class PeerNetwork: ObservableObject {
     @Published var peers: [DiscoveredPeer] = []
     @Published var state: PeerNetworkState = .idle
+    /// Most-recent host-stats snapshot received from each remote peer,
+    /// keyed by remote peer id. MONITOR CLUSTER reads this so the
+    /// per-node row shows real CPU/mem/IO numbers for every member, not
+    /// just the local node.
+    @Published var peerStats: [String: HostStats.HostSnapshot] = [:]
 
     private weak var world: ElevatorWorld?
     private var listener: NWListener?
     private var browser: NWBrowser?
     private let queue = DispatchQueue(label: "net.dcarmichael.elevator.net")
+    private var statsTimer: Timer?
+    private static let statsBroadcastInterval: TimeInterval = 5.0
 
     private var connections: [String: PeerConnection] = [:]
     private var pendingConnections: [ObjectIdentifier: PeerConnection] = [:]
@@ -52,6 +59,7 @@ final class PeerNetwork: ObservableObject {
         state = .discovering
         startListener()
         startBrowser()
+        startStatsBroadcast()
     }
 
     func stop() {
@@ -62,7 +70,24 @@ final class PeerNetwork: ObservableObject {
         listener = nil
         browser?.cancel()
         browser = nil
+        statsTimer?.invalidate()
+        statsTimer = nil
+        peerStats.removeAll()
         state = .idle
+    }
+
+    private func startStatsBroadcast() {
+        statsTimer?.invalidate()
+        let t = Timer.scheduledTimer(withTimeInterval: Self.statsBroadcastInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.broadcastLocalSnapshot() }
+        }
+        statsTimer = t
+    }
+
+    private func broadcastLocalSnapshot() {
+        guard !connections.isEmpty else { return }
+        let snap = HostStats.shared.snapshot()
+        broadcast(.stats(peerId: localPeerId, snapshot: snap))
     }
 
     private static func tcpParameters() -> NWParameters {
@@ -207,6 +232,9 @@ final class PeerNetwork: ObservableObject {
             if let idx = world.elevators.firstIndex(where: { $0.id == id }) {
                 world.elevators.remove(at: idx)
             }
+        case .stats:
+            guard let remoteId = peer.remotePeerId, let snap = message.snapshot else { return }
+            peerStats[remoteId] = snap
         case .bye:
             cleanup(peer: peer)
         }
@@ -217,6 +245,7 @@ final class PeerNetwork: ObservableObject {
         if let remoteId = peer.remotePeerId {
             connections.removeValue(forKey: remoteId)
             peers.removeAll { $0.id == remoteId }
+            peerStats.removeValue(forKey: remoteId)
             world?.removeAll(ownedBy: remoteId)
         }
         peer.cancel()
