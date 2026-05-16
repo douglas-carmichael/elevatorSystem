@@ -57,7 +57,12 @@ enum Strings {
         add("status.alarms",        "ALARMS",                              "ALARMES")
         add("status.alarms.normal", "NORMAL",                              "NORMAL")
         add("status.alarms.summary","%d ACTIVE / %d UNACK",                "%d ACTIVES / %d NON ACQ.")
-        add("status.dispatch",      "DISPATCH",                            "RÉGULATION")
+        // Loanword in both languages -- consistent with TELNET / MODBUS
+        // / MODE above. "RÉGULATION" (10 chars) was wider than its
+        // column slot and pushed onto a second row at typical window
+        // widths; modern French industrial-controls operators read
+        // "DISPATCH" without trouble.
+        add("status.dispatch",      "DISPATCH",                            "DISPATCH")
         // Shortened so the status-strip column doesn't wrap the value
         // onto a second line at typical window widths. COLL and DEST
         // are the standard industrial-controls abbreviations -- the
