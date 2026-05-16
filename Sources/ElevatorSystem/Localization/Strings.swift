@@ -116,6 +116,12 @@ enum Strings {
                                     "Cabine  Test                              Mesure         Statut")
         add("diag.col.floor",       "Floor   Test                              Reading        Status",
                                     "Étage   Test                              Mesure         Statut")
+        add("diag.menu.title",      "Diagnostic Test Selection",
+                                    "Sélection des Tests de Diagnostic")
+        add("diag.menu.copyright",  "Copyright (c) 1985, 2026 LPD Systems, Inc.   All rights reserved.",
+                                    "Copyright (c) 1985, 2026 LPD Systèmes, Inc.   Tous droits réservés.")
+        add("diag.menu.nav",        "UP / DOWN to navigate    ENTER to run    Ctrl/Y to exit",
+                                    "HAUT / BAS pour naviguer    ENTRÉE pour exécuter    Ctrl/Y pour quitter")
 
         // Status words (column 3 of every test row).
         add("diag.status.pass",     "PASS",                                "RÉUSSI")

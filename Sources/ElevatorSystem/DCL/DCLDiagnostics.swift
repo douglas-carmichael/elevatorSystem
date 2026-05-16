@@ -259,7 +259,12 @@ extension DCLEngine {
 
         var rows: [String] = []
         rows.append(sep("┌", "┐"))
-        rows.append(boxLine(centered("ELEVATOR-CTRL Diagnostic Test Selection")))
+        // LPD suite header + copyright line + selection subtitle so the
+        // menu reads like a real OpenVMS layered-product form, and all
+        // three lines are localisable (FR speakers see French headings).
+        rows.append(boxLine(centered(tr("diag.suite") + "  V1.4")))
+        rows.append(boxLine(centered(tr("diag.menu.copyright"))))
+        rows.append(boxLine(centered(tr("diag.menu.title"))))
         rows.append(sep("├", "┤"))
         rows.append(boxLine(""))
         for (i, item) in diagMenuItems.enumerated() {
@@ -269,7 +274,7 @@ extension DCLEngine {
         }
         rows.append(boxLine(""))
         rows.append(sep("├", "┤"))
-        rows.append(boxLine("  UP / DOWN to navigate    ENTER to run    Ctrl/Y to exit"))
+        rows.append(boxLine("  " + tr("diag.menu.nav")))
         rows.append(sep("└", "┘"))
 
         var s = ""
