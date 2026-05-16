@@ -315,4 +315,311 @@ extension DCLEngine {
         }
         return s
     }
+
+    // MARK: -- Screen-mode editor (EDT change mode)
+    //
+    // The screen editor takes over the alternate buffer (same one used
+    // by MONITOR and the diagnostic menu), paints a reverse-video
+    // status bar at the top and hint bar at the bottom, and shows a
+    // scrollable view of the buffer in between. Arrow keys move the
+    // cursor, printable input inserts at the cursor, Enter splits the
+    // current line, Backspace deletes the character before the cursor
+    // (or joins with the previous line at column 0), Page Up / Down
+    // scroll the viewport, Ctrl-Z saves and exits, Ctrl-Y / Ctrl-C
+    // discard and exit.
+
+    /// Screen-editor layout constants (a 24-row VT220 viewport).
+    private static let edtScreenViewRows: Int = 21    // rows 2...22
+    private static let edtScreenHintRow: Int = 23
+    private static let edtScreenWidth: Int = 80
+
+    func startEdtScreen(_ cmd: Parsed) -> String {
+        guard let raw = cmd.positional.first else {
+            return "%EDIT-F-NOFILE, no file specified\n"
+        }
+        let name = scriptStore.normalize(raw)
+        let body = scriptStore.read(name: name) ?? ""
+        let created = !scriptStore.exists(name: name)
+        if created {
+            scriptStore.write(name: name, body: "")
+        }
+        // Always have at least one (possibly empty) line so the cursor
+        // can sit somewhere when editing an empty file.
+        var lines = body.isEmpty ? [""] : body.components(separatedBy: "\n")
+        // Drop the trailing empty element from a final "\n" so the line
+        // count matches what the user expects.
+        if lines.count > 1, lines.last == "" {
+            lines.removeLast()
+        }
+        if lines.isEmpty { lines = [""] }
+
+        editorActive = true
+        editorScreenMode = true
+        editorFilename = name
+        editorBuffer = lines
+        editorCursorRow = 0
+        editorCursorCol = 0
+        editorViewTop = 0
+        editorCurrentLine = 1
+        editorModified = created
+        editorInsertMode = false
+        editorPreviousPrompt = prompt
+        liveMode = .screenEditor
+        enterLiveScreen()
+        refreshScreenEditor()
+        return ""
+    }
+
+    /// Repaint the entire screen. Status bar in reverse video at row 1,
+    /// content viewport on rows 2...22, hint bar in reverse video at
+    /// row 23. Cursor is positioned over the logical (cursorRow,
+    /// cursorCol) cell at the end.
+    func refreshScreenEditor() {
+        guard case .screenEditor = liveMode else { return }
+        let viewRows = Self.edtScreenViewRows
+        let width    = Self.edtScreenWidth
+        let hintRow  = Self.edtScreenHintRow
+
+        // Auto-scroll so the cursor row is always visible.
+        if editorCursorRow < editorViewTop {
+            editorViewTop = editorCursorRow
+        } else if editorCursorRow >= editorViewTop + viewRows {
+            editorViewTop = editorCursorRow - viewRows + 1
+        }
+        editorViewTop = max(0, editorViewTop)
+
+        var s = ""
+        // Status bar
+        let modTag  = editorModified ? " [Modified]" : ""
+        let leftS   = " EDT  \(editorFilename)\(modTag)"
+        let rightS  = "L:\(editorCursorRow + 1)  C:\(editorCursorCol + 1) "
+        let padN    = max(1, width - leftS.count - rightS.count)
+        let status  = (leftS + String(repeating: " ", count: padN) + rightS)
+                        .padding(toLength: width, withPad: " ", startingAt: 0)
+        s += "\u{1B}[1;1H\u{1B}[7m\(status)\u{1B}[27m"
+
+        // Content viewport
+        for vrow in 0..<viewRows {
+            let bufferRow = editorViewTop + vrow
+            let lineText: String
+            if bufferRow < editorBuffer.count {
+                lineText = String(editorBuffer[bufferRow].prefix(width))
+            } else {
+                lineText = "~"
+            }
+            s += "\u{1B}[\(vrow + 2);1H\(lineText)\u{1B}[K"
+        }
+
+        // Hint bar
+        let hint = " ^Z save+exit   ^Y discard   PgUp / PgDn   Arrows: move"
+            .padding(toLength: width, withPad: " ", startingAt: 0)
+        s += "\u{1B}[\(hintRow);1H\u{1B}[7m\(hint)\u{1B}[27m"
+
+        // Position cursor over its logical cell.
+        let cursorScreenRow = (editorCursorRow - editorViewTop) + 2
+        let cursorScreenCol = max(1, min(width, editorCursorCol + 1))
+        s += "\u{1B}[0m\u{1B}[\(cursorScreenRow);\(cursorScreenCol)H"
+        outRaw(s)
+    }
+
+    /// Dispatch input bytes routed by VTShellView while the editor is
+    /// in screen mode. Parses CSI escapes for arrows / Page keys and
+    /// hands single-byte keys to the dedicated handlers.
+    func handleScreenEditorKey(_ bytes: [UInt8]) {
+        guard case .screenEditor = liveMode else { return }
+        var dirty = false
+        var i = 0
+        while i < bytes.count {
+            let b = bytes[i]
+            // CSI sequence (ESC [ ... <final 0x40...0x7E>)
+            if b == 0x1B, i + 1 < bytes.count, bytes[i + 1] == 0x5B {
+                var j = i + 2
+                while j < bytes.count, !((0x40...0x7E).contains(bytes[j])) {
+                    j += 1
+                }
+                if j < bytes.count {
+                    let final  = bytes[j]
+                    let params = Array(bytes[(i + 2)..<j])
+                    handleScreenEditorCSI(final: final, params: params)
+                    i = j + 1
+                    dirty = true
+                    continue
+                } else {
+                    break   // incomplete escape -- ignore the tail
+                }
+            }
+            switch b {
+            case 0x1A:                                  // Ctrl-Z: save + exit
+                screenEditorSaveAndExit()
+                return
+            case 0x03, 0x19:                            // Ctrl-C / Ctrl-Y: discard
+                screenEditorDiscardAndExit()
+                return
+            case 0x0D, 0x0A:                            // Enter: split line
+                screenEditorSplitLine()
+                dirty = true
+            case 0x08, 0x7F:                            // BS / DEL
+                screenEditorBackspace()
+                dirty = true
+            case 0x09:                                  // TAB -> 4 spaces
+                for _ in 0..<4 { screenEditorInsert(" ") }
+                dirty = true
+            default:
+                if b >= 0x20, b < 0x80 {
+                    screenEditorInsert(Character(UnicodeScalar(b)))
+                    dirty = true
+                }
+            }
+            i += 1
+        }
+        if dirty { refreshScreenEditor() }
+    }
+
+    private func handleScreenEditorCSI(final: UInt8, params: [UInt8]) {
+        switch final {
+        case 0x41:                                      // A - Up
+            if editorCursorRow > 0 {
+                editorCursorRow -= 1
+                editorCursorCol = min(editorCursorCol, screenEditorCurrentLineLength())
+            }
+        case 0x42:                                      // B - Down
+            if editorCursorRow < editorBuffer.count - 1 {
+                editorCursorRow += 1
+                editorCursorCol = min(editorCursorCol, screenEditorCurrentLineLength())
+            }
+        case 0x43:                                      // C - Right
+            let lineLen = screenEditorCurrentLineLength()
+            if editorCursorCol < lineLen {
+                editorCursorCol += 1
+            } else if editorCursorRow < editorBuffer.count - 1 {
+                editorCursorRow += 1
+                editorCursorCol = 0
+            }
+        case 0x44:                                      // D - Left
+            if editorCursorCol > 0 {
+                editorCursorCol -= 1
+            } else if editorCursorRow > 0 {
+                editorCursorRow -= 1
+                editorCursorCol = screenEditorCurrentLineLength()
+            }
+        case 0x48:                                      // H - Home
+            editorCursorCol = 0
+        case 0x46:                                      // F - End
+            editorCursorCol = screenEditorCurrentLineLength()
+        case 0x7E:                                      // ~ - vt220 keypad
+            if params == [0x35] {                       // 5 ~ - Page Up
+                screenEditorPageScroll(up: true)
+            } else if params == [0x36] {                // 6 ~ - Page Down
+                screenEditorPageScroll(up: false)
+            } else if params == [0x31] {                // 1 ~ - Home
+                editorCursorCol = 0
+            } else if params == [0x34] {                // 4 ~ - End
+                editorCursorCol = screenEditorCurrentLineLength()
+            }
+        default:
+            break
+        }
+        editorCurrentLine = editorCursorRow + 1
+    }
+
+    private func screenEditorCurrentLineLength() -> Int {
+        guard editorCursorRow >= 0, editorCursorRow < editorBuffer.count else { return 0 }
+        return editorBuffer[editorCursorRow].count
+    }
+
+    private func screenEditorInsert(_ ch: Character) {
+        while editorCursorRow >= editorBuffer.count { editorBuffer.append("") }
+        var line = editorBuffer[editorCursorRow]
+        let safeCol = max(0, min(editorCursorCol, line.count))
+        let idx = line.index(line.startIndex, offsetBy: safeCol)
+        line.insert(ch, at: idx)
+        editorBuffer[editorCursorRow] = line
+        editorCursorCol = safeCol + 1
+        editorModified = true
+    }
+
+    private func screenEditorSplitLine() {
+        while editorCursorRow >= editorBuffer.count { editorBuffer.append("") }
+        let line = editorBuffer[editorCursorRow]
+        let safeCol = max(0, min(editorCursorCol, line.count))
+        let splitIdx = line.index(line.startIndex, offsetBy: safeCol)
+        let head = String(line[..<splitIdx])
+        let tail = String(line[splitIdx...])
+        editorBuffer[editorCursorRow] = head
+        editorBuffer.insert(tail, at: editorCursorRow + 1)
+        editorCursorRow += 1
+        editorCursorCol = 0
+        editorModified = true
+    }
+
+    private func screenEditorBackspace() {
+        guard editorCursorRow < editorBuffer.count else { return }
+        if editorCursorCol > 0 {
+            var line = editorBuffer[editorCursorRow]
+            let safeCol = max(0, min(editorCursorCol, line.count))
+            guard safeCol > 0 else { return }
+            let idx = line.index(line.startIndex, offsetBy: safeCol - 1)
+            line.remove(at: idx)
+            editorBuffer[editorCursorRow] = line
+            editorCursorCol = safeCol - 1
+            editorModified = true
+        } else if editorCursorRow > 0 {
+            // Join with previous line.
+            let current = editorBuffer.remove(at: editorCursorRow)
+            editorCursorRow -= 1
+            let prevLen = editorBuffer[editorCursorRow].count
+            editorBuffer[editorCursorRow] += current
+            editorCursorCol = prevLen
+            editorModified = true
+        }
+    }
+
+    private func screenEditorPageScroll(up: Bool) {
+        let viewRows = Self.edtScreenViewRows
+        if up {
+            editorCursorRow = max(0, editorCursorRow - viewRows)
+            editorViewTop   = max(0, editorViewTop - viewRows)
+        } else {
+            editorCursorRow = min(max(0, editorBuffer.count - 1), editorCursorRow + viewRows)
+            let maxTop = max(0, editorBuffer.count - viewRows)
+            editorViewTop = min(maxTop, editorViewTop + viewRows)
+        }
+        editorCursorCol = min(editorCursorCol, screenEditorCurrentLineLength())
+    }
+
+    private func screenEditorSaveAndExit() {
+        let body = editorBuffer.joined(separator: "\n") + "\n"
+        let lineCount = editorBuffer.count
+        let name = editorFilename
+        scriptStore.write(name: name, body: body)
+        screenEditorTeardown()
+        out("%EDT-I-WRITTEN, \(name) (\(lineCount) lines)\n")
+        out(prompt)
+    }
+
+    private func screenEditorDiscardAndExit() {
+        let modified = editorModified
+        let name = editorFilename
+        screenEditorTeardown()
+        if modified {
+            out("%EDT-W-DISCARD, changes to \(name) discarded\n")
+        } else {
+            out("%EDT-I-NOCHANGE, no changes to \(name)\n")
+        }
+        out(prompt)
+    }
+
+    private func screenEditorTeardown() {
+        editorActive = false
+        editorScreenMode = false
+        editorBuffer = []
+        editorFilename = ""
+        editorModified = false
+        editorCursorRow = 0
+        editorCursorCol = 0
+        editorViewTop = 0
+        liveMode = .none
+        exitLiveScreen()
+        prompt = editorPreviousPrompt.isEmpty ? "$ " : editorPreviousPrompt
+    }
 }

@@ -174,10 +174,17 @@ extension DCLEngine {
         case matches(t, "APPEND", min: 3):
             return "\n  APPEND input-spec output-spec\n      Concatenate input onto the output file.\n"
         case matches(t, "EDIT"):
-            var s = "\n  EDIT [/EDT] filename\n"
-            s += "      Invoke the EDT line editor on a .COM file (or any text file\n"
-            s += "      in the script store). When you EXIT, the buffer is saved back\n"
-            s += "      to disk; QUIT discards your changes.\n"
+            var s = "\n  EDIT [/LINE] filename\n"
+            s += "      Open a .COM file (or any text file in the script store) in the\n"
+            s += "      EDT screen-mode editor: arrow keys navigate, printable input\n"
+            s += "      inserts at the cursor, Enter splits the current line, BS / DEL\n"
+            s += "      removes the character before the cursor (joining lines at the\n"
+            s += "      column-zero margin). Page Up / Page Down scroll the viewport.\n"
+            s += "      Ctrl/Z saves the buffer and exits; Ctrl/Y discards changes.\n"
+            s += "\n"
+            s += "      EDIT/LINE filename     Use the asterisk-prompt line editor\n"
+            s += "                             (TYPE, INSERT, DELETE, FIND, etc.) for\n"
+            s += "                             scripted edits.\n"
             return s
         case matches(t, "DIFFERENCES", min: 4):
             return "\n  DIFFERENCES file1 file2\n      Compare two files line-by-line.\n"

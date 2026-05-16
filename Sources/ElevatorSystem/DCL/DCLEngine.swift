@@ -34,6 +34,7 @@ final class DCLEngine: ObservableObject {
         case monitor
         case testUtility(name: String, header: String)
         case diagnosticMenu
+        case screenEditor
     }
     var liveMode: LiveMode = .none
     var liveTimer: Timer?
@@ -123,6 +124,13 @@ final class DCLEngine: ObservableObject {
     var editorModified: Bool = false
     var editorInsertMode: Bool = false
     var editorPreviousPrompt: String = "$ "
+
+    // Screen-mode EDT (EDIT, or EDIT/SCREEN) state. Cursor and view-top
+    // are 0-indexed offsets into editorBuffer. See DCLEdt.swift.
+    var editorScreenMode: Bool = false
+    var editorCursorRow: Int = 0
+    var editorCursorCol: Int = 0
+    var editorViewTop: Int = 0
 
     /// Captured at engine init. SHOW SYSTEM uses this as the anchor for
     /// the synthetic per-process counters so the displayed I/O, CPU time
@@ -485,9 +493,15 @@ final class DCLEngine: ObservableObject {
         case matches(head, "APPEND", min: 3):                 return rmsFNF("APPEND", cmd, op: "OPENIN")
         case matches(head, "EDIT"):
             // In SELFTEST mode return a dry-run line so the test pass
-            // doesn't leave the editor active.
+            // doesn't leave the editor active. EDIT defaults to the
+            // full-screen change-mode editor; EDIT/LINE keeps the
+            // line-mode (asterisk-prompt) editor for those who prefer
+            // it (and for compatibility with existing scripts).
             if dryRun { return "%EDT-I-DRYRUN, would open EDT on \(cmd.positional.first ?? "(no file)")\n" }
-            return startEdt(cmd)
+            if cmd.hasQualifier("LINE", min: 1) {
+                return startEdt(cmd)
+            }
+            return startEdtScreen(cmd)
         case matches(head, "DIFFERENCES", min: 4):            return rmsFNF("DIFFERENCES", cmd, op: "OPENIN")
         case matches(head, "CREATE", min: 3):                 return createCmd(cmd)
         case matches(head, "CONTINUE", min: 3):               return ""

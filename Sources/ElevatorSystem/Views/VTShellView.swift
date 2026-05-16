@@ -116,6 +116,13 @@ struct VTShellView: NSViewRepresentable {
                 dcl.handleDiagnosticMenuKey(bytes)
                 return
             }
+            // The screen-mode editor owns the whole input stream while
+            // it's up: arrow keys, printable input, Enter, Backspace,
+            // Page Up / Down, Ctrl-Z (save+exit), Ctrl-Y (discard).
+            if case .screenEditor = dcl.liveMode {
+                dcl.handleScreenEditorKey(bytes)
+                return
+            }
             var dirty = false
             for b in bytes {
                 switch escState {
