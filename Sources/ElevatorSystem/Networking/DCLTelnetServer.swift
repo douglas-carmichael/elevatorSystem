@@ -138,6 +138,13 @@ final class TelnetSession {
     }
 
     private func handleReady() {
+        // Negotiate telnet character-at-a-time mode FIRST so the client's
+        // tty driver releases arrow keys / Ctrl-Y / etc. as they're
+        // typed instead of buffering them in cooked mode until Enter.
+        // Plain `nc` won't speak telnet protocol and these bytes will
+        // appear briefly in its terminal as garbage; recommend
+        // `telnet localhost 2323` instead.
+        sendTelnetNegotiation()
         // Engine pushes user-visible output (banner, prompt, command
         // results) here; we normalise LF -> CRLF so telnet line-mode
         // clients advance to the next line cleanly.
@@ -155,14 +162,32 @@ final class TelnetSession {
         receiveLoop()
     }
 
+    /// RFC 854/857/858 negotiation: convince the telnet client to enter
+    /// character-at-a-time mode so the local tty stops line-buffering
+    /// (which would swallow arrow keys, Ctrl-Y, ESC ESC, etc. until the
+    /// user pressed Enter).
+    ///   IAC WILL ECHO              -- we'll handle echo via redraw()
+    ///   IAC WILL SUPPRESS-GO-AHEAD -- full-duplex char-at-a-time
+    ///   IAC DO   SUPPRESS-GO-AHEAD -- ask the client to do the same
+    private func sendTelnetNegotiation() {
+        let iac: [UInt8] = [
+            0xFF, 0xFB, 0x01,
+            0xFF, 0xFB, 0x03,
+            0xFF, 0xFD, 0x03,
+        ]
+        connection.send(content: Data(iac), completion: .contentProcessed { _ in })
+    }
+
     private func receiveLoop() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) {
             [weak self] data, _, isComplete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
-                let bytes = Array(data)
-                Task { @MainActor in
-                    self.lineDiscipline?.process(bytes)
+                let filtered = Self.stripTelnetIAC(Array(data))
+                if !filtered.isEmpty {
+                    Task { @MainActor in
+                        self.lineDiscipline?.process(filtered)
+                    }
                 }
             }
             if isComplete || error != nil {
@@ -171,6 +196,45 @@ final class TelnetSession {
             }
             self.receiveLoop()
         }
+    }
+
+    /// Consume telnet IAC sequences from the incoming byte stream so
+    /// the line discipline never sees the client's WILL / DO / WONT /
+    /// DONT replies or any subnegotiation payloads. Handles:
+    ///   IAC <cmd> <option>          (WILL / WONT / DO / DONT)  -- 3 bytes
+    ///   IAC SB <option> ... IAC SE  (subnegotiation, e.g. window size)
+    ///   IAC IAC                     (escaped 0xFF in the data stream)
+    nonisolated static func stripTelnetIAC(_ bytes: [UInt8]) -> [UInt8] {
+        var out: [UInt8] = []
+        out.reserveCapacity(bytes.count)
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] != 0xFF {
+                out.append(bytes[i])
+                i += 1
+                continue
+            }
+            // IAC byte (0xFF). Need at least one more byte to decide.
+            guard i + 1 < bytes.count else { break }
+            let cmd = bytes[i + 1]
+            switch cmd {
+            case 0xFF:                          // IAC IAC -- literal 0xFF
+                out.append(0xFF)
+                i += 2
+            case 0xFA:                          // SB -- subnegotiation
+                i += 2
+                while i + 1 < bytes.count,
+                      !(bytes[i] == 0xFF && bytes[i + 1] == 0xF0) {
+                    i += 1
+                }
+                i += 2                          // skip IAC SE
+            case 0xFB, 0xFC, 0xFD, 0xFE:        // WILL / WONT / DO / DONT
+                i += 3                          // skip IAC <cmd> <option>
+            default:                            // IAC <2-byte cmd> (NOP, GA, ...)
+                i += 2
+            }
+        }
+        return out
     }
 
     private func sendNormalised(_ text: String) {
