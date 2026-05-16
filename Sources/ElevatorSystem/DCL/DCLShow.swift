@@ -138,24 +138,38 @@ extension DCLEngine {
     }
 
     func showDevices() -> String {
-        var s = "\nDevice                  Device           Error    Volume                 Free  Trans Mnt\n"
-        s += " Name                   Status           Count     Label                Blocks Count Cnt\n"
+        // Column layout (fixed widths so values can't crowd the next
+        // column even when the disk is multi-terabyte and free-block
+        // counts run to 11 digits):
+        //   Device Name     16 left
+        //   Device Status   10 left
+        //   Error Count      5 right
+        //   Volume Label    18 left
+        //   Free Blocks     14 right
+        //   Trans Count      6 right
+        //   Mnt Cnt          4 right
+        let fmt = "%-16@ %-10@ %5@  %-18@ %14@ %6@ %4@\n"
+        func row(_ name: String, _ status: String, _ err: String,
+                 _ label: String, _ free: String, _ trans: String, _ mnt: String) -> String {
+            return String(format: fmt,
+                          name as NSString, status as NSString, err as NSString,
+                          label as NSString, free as NSString, trans as NSString, mnt as NSString)
+        }
+        var s = "\n"
+        s += row("Device", "Device", "Error", "Volume", "Free", "Trans", "Mnt")
+        s += row(" Name",  "Status", "Count", " Label", "Blocks", "Count", "Cnt")
 
         let volumes = host.mountedVolumes()
         for (i, vol) in volumes.enumerated() {
-            let dev = "DKA\(i):".padding(toLength: 24, withPad: " ", startingAt: 0)
-            let label = vol.vmsLabel.padding(toLength: 14, withPad: " ", startingAt: 0)
+            let dev = "DKA\(i):"
+            let label = vol.vmsLabel
             let free = String(vol.freeBlocks)
-            let freePad = String(repeating: " ", count: max(0, 12 - free.count)) + free
             let trans = i == 0 ? 44 : max(1, 12 - (i - 1) * 3)
-            s += "\(dev)Mounted              0  \(label) \(freePad) \(String(format: "%4d", trans))   1\n"
+            s += row(dev, "Mounted", "0", label, free, String(trans), "1")
         }
-
-        let none = "(none)".padding(toLength: 14, withPad: " ", startingAt: 0)
-        s += "NET$EBA0:               Online               0  \(none)            -     -   -\n"
-        s += "BONJOUR$EBA1:           Online               0  \(none)            -     -   -\n"
-        let term = terminalName.padding(toLength: 24, withPad: " ", startingAt: 0)
-        s += "\(term)Online               0  \(none)            -     -   -\n"
+        s += row("NET$EBA0:",    "Online", "0", "(none)", "-", "-", "-")
+        s += row("BONJOUR$EBA1:", "Online", "0", "(none)", "-", "-", "-")
+        s += row(terminalName,    "Online", "0", "(none)", "-", "-", "-")
         return s
     }
 
