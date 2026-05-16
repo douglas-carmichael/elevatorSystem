@@ -140,23 +140,26 @@ extension DCLEngine {
     func showDevices() -> String {
         // Column layout (fixed widths so values can't crowd the next
         // column even when the disk is multi-terabyte and free-block
-        // counts run to 11 digits):
-        //   Device Name     16 left
-        //   Device Status   10 left
-        //   Error Count      5 right
-        //   Volume Label    18 left
-        //   Free Blocks     14 right
-        //   Trans Count      6 right
-        //   Mnt Cnt          4 right
-        let fmt = "%-16@ %-10@ %5@  %-18@ %14@ %6@ %4@\n"
+        // counts run to 11 digits). Swift's String(format:) ignores
+        // width on %@, so do the padding ourselves.
+        func padLeft(_ s: String, _ w: Int) -> String {
+            s.count >= w ? s : s + String(repeating: " ", count: w - s.count)
+        }
+        func padRight(_ s: String, _ w: Int) -> String {
+            s.count >= w ? s : String(repeating: " ", count: w - s.count) + s
+        }
         func row(_ name: String, _ status: String, _ err: String,
                  _ label: String, _ free: String, _ trans: String, _ mnt: String) -> String {
-            return String(format: fmt,
-                          name as NSString, status as NSString, err as NSString,
-                          label as NSString, free as NSString, trans as NSString, mnt as NSString)
+            return padLeft(name,   16) + " "
+                +  padLeft(status, 10) + " "
+                +  padRight(err,    5) + "  "
+                +  padLeft(label,  18) + " "
+                +  padRight(free,  14) + " "
+                +  padRight(trans,  6) + " "
+                +  padRight(mnt,    4) + "\n"
         }
         var s = "\n"
-        s += row("Device", "Device", "Error", "Volume", "Free", "Trans", "Mnt")
+        s += row("Device", "Device", "Error", "Volume", "Free",   "Trans", "Mnt")
         s += row(" Name",  "Status", "Count", " Label", "Blocks", "Count", "Cnt")
 
         let volumes = host.mountedVolumes()
