@@ -70,7 +70,7 @@ final class DCLEngine: ObservableObject {
     let osVersion: String = "V9.2-3"
     let osTitle: String = "VSI OpenVMS"
     let username: String
-    let nodeName: String = "ASCEN1"
+    let nodeName: String
     let terminalName: String = "TT$VTA0418:"
     let pid: String
     var lastStatus: String = "%X00000001"
@@ -126,6 +126,29 @@ final class DCLEngine: ObservableObject {
         self.username = cleaned.isEmpty ? "OPERATOR" : String(cleaned.prefix(12))
         self.pid = String(format: "%08X", Int.random(in: 0x0000_0400...0x0000_04FF))
         self.defaultDirectory = "[\(self.username)]"
+        self.nodeName = Self.makeNodeName()
+    }
+
+    /// Build an OpenVMS-plausible 6-character DECnet-style node name
+    /// from the local Mac's system name. Real VMS clusters use 1-6
+    /// upper-case alphanumerics, first char must be a letter, and most
+    /// shops follow a "stem + node-number" pattern (ASCEN1, BOSTON, etc.)
+    private static func makeNodeName() -> String {
+        let raw = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        let upper = raw.uppercased()
+        let alnum = upper.filter { $0.isLetter || $0.isNumber }
+        if alnum.isEmpty { return "VMSND1" }
+        var name = String(alnum.prefix(6))
+        // VMS requires the first character to be a letter.
+        if let first = name.first, !first.isLetter {
+            name = "N" + name.dropFirst()
+        }
+        // Pad short names with "1" so they look like a node-numbered
+        // cluster member: "IMAC" -> "IMAC11", "MBP" -> "MBP111".
+        if name.count < 6 {
+            name += String(repeating: "1", count: 6 - name.count)
+        }
+        return name
     }
 
     func attach(world: ElevatorWorld, network: PeerNetwork,
