@@ -105,7 +105,7 @@ enum Strings {
         // LPD diagnostic test utility (layered product -- localised because
         // an LPD-branded application absolutely would be, even though the
         // OpenVMS DCL CLI itself stays English).
-        add("diag.suite",           "LPD ELEVATOR DIAGNOSTIC SUITE",       "LPD SUITE DE DIAGNOSTIC ASCENSEUR")
+        add("diag.suite",           "LPD ELEVATOR DIAGNOSTIC SUITE",       "LPD DIAGNOSTIC ASCENSEUR")
         add("diag.operator",        "Operator",                            "Opérateur")
         add("diag.started",         "Started",                             "Démarré")
         add("diag.elapsed",         "Elapsed",                             "Écoulé")
