@@ -81,6 +81,7 @@ extension DCLEngine {
 
     func showSystem() -> String {
         let now = Date()
+        let elapsed = max(0, now.timeIntervalSince(sessionStart))
         let uptime = uptimeString(from: bootTime, to: now)
         let loads = host.loadAverages()
         let procCount = host.processCount()
@@ -88,38 +89,149 @@ extension DCLEngine {
         s += String(format: "  Load average: %.2f  %.2f  %.2f    Active processes: %d\n",
                     loads.one, loads.five, loads.fifteen, procCount)
         s += "  Pid    Process Name      State  Pri      I/O       CPU       Page flts Pages\n"
-        s += sysLine("00000401", "SWAPPER",          "HIB",   16, 0,     "0 00:00:01.21",         0,     0)
-        s += sysLine("00000402", "NULL",             "COM",    0, 0,     "3 00:00:00.00",         0,     0)
-        s += sysLine("00000403", "ELEVATOR_CTL",     "LEF",    8, 4823,  "0 00:01:32.14",      1842,  3104)
-        s += sysLine("00000404", "DISPATCH",         "LEF",    7, 2204,  "0 00:00:48.21",       412,  1480)
-        s += sysLine("00000405", "HALL_CALL_MGR",    "LEF",    6, 1187,  "0 00:00:24.04",       284,   720)
-        s += sysLine("00000406", "DOOR_SVC",         "LEF",    6,  942,  "0 00:00:18.42",       212,   612)
-        s += sysLine("00000407", "BRAKE_MON",        "HIB",    7,   84,  "0 00:00:02.18",        48,   180)
-        s += sysLine("00000408", "WEIGHT_MON",       "HIB",    6,   62,  "0 00:00:01.42",        38,   148)
-        s += sysLine("00000409", "LOGGER",           "LEF",    4,  208,  "0 00:00:04.81",        72,   246)
+
+        // Synthetic process model: each row defines a baseline plus growth
+        // rates so I/O, CPU time and page-fault counters tick upward on
+        // every SHOW SYSTEM refresh, page counts oscillate around their
+        // working-set baseline, and LEF processes flicker briefly to COM
+        // as if they were waking to service a request -- the table looks
+        // like a live VMS box instead of a frozen snapshot.
+        for p in Self.backgroundProcs {
+            s += renderSysProc(p, elapsed: elapsed)
+        }
 
         let cabs = world?.elevators ?? []
         for (i, cab) in cabs.prefix(6).enumerated() {
             let cabPid = String(format: "%08X", 0x040A + i)
             let dLabel = world?.displayLabel(for: cab) ?? cab.label
-            let name = String(format: "CAB_%@_TASK", dLabel).padding(toLength: 16, withPad: " ", startingAt: 0)
-            let state = cab.doors == .open ? "LEF" : (cab.direction == .idle ? "HIB" : "COM")
-            let io = 800 + (i * 47)
-            let cpu = String(format: "0 00:00:%02d.%02d", 12 + i, (i * 17 + 9) % 100)
-            let faults = 320 + (i * 18)
-            let pages = 610 + i * 8
-            s += "\(cabPid) \(name) \(state)     6   \(String(format: "%6d", io))   \(cpu)       \(String(format: "%3d", faults))   \(String(format: "%4d", pages))\n"
+            let name = "CAB_\(dLabel)_TASK"
+            // Live cab state takes precedence: if the doors are open the
+            // task is in LEF (waiting for the dwell timer); a moving cab
+            // is COM; an idle stationary cab is HIB.
+            let liveState = cab.doors == .open ? "LEF" :
+                            (cab.direction == .idle ? "HIB" : "COM")
+            let phase = Double(i) * 1.7
+            let ioBase = 800 + i * 47
+            let ioJitter = Int(sin(elapsed / 5.3 + phase) * 14)
+            let io = ioBase + Int(0.9 * elapsed) + ioJitter
+            let cpuBase = Double(12 + i) + Double((i * 17 + 9) % 100) / 100.0
+            let cpu = cpuBase + 0.045 * elapsed
+            let flts = 320 + i * 18 + Int(0.18 * elapsed)
+            let pgsJitter = Int(sin(elapsed / 7.1 + phase) * 22)
+            let pgs = 610 + i * 8 + pgsJitter
+            s += sysLine(cabPid, name, liveState, 6, io, formatVMSCPUTime(cpu), flts, max(0, pgs))
         }
-        s += sysLine("00000414", "COMM_NETSRV",      "LEF",    6, 612,   "0 00:00:08.71",       412, 1024)
-        s += sysLine("00000415", "BONJOUR_PUBSRV",   "LEF",    6, 144,   "0 00:00:01.95",       108,  384)
-        s += sysLine("00000416", "MAINT_AGENT",      "HIB",    4,  72,   "0 00:00:00.94",        36,  158)
-        s += "\(pid) DCL_\(username.padding(toLength: 12, withPad: " ", startingAt: 0).prefix(12)) CUR     4       21   0 00:00:00.18        24   148\n"
+
+        for p in Self.serviceProcs {
+            s += renderSysProc(p, elapsed: elapsed)
+        }
+
+        // The operator's own DCL process: CUR (current) so the table
+        // always ends with the row the user is typing from.
+        let userName = "DCL_" + String(username.prefix(12))
+        let userIO   = 21 + Int(0.3 * elapsed)
+        let userCPU  = 0.18 + 0.0008 * elapsed
+        let userFlts = 24 + Int(0.05 * elapsed)
+        let userPgs  = 148 + Int(sin(elapsed / 4.2) * 7)
+        s += sysLine(pid, userName, "CUR", 4, userIO, formatVMSCPUTime(userCPU), userFlts, max(0, userPgs))
         return s
     }
 
     private func sysLine(_ pid: String, _ name: String, _ state: String, _ pri: Int, _ io: Int, _ cpu: String, _ faults: Int, _ pages: Int) -> String {
         let padName = name.padding(toLength: 16, withPad: " ", startingAt: 0)
         return "\(pid) \(padName) \(state)    \(String(format: "%2d", pri))   \(String(format: "%6d", io))   \(cpu)       \(String(format: "%4d", faults))  \(String(format: "%4d", pages))\n"
+    }
+
+    /// Synthetic-process descriptor. Baseline values come from a typical
+    /// snapshot of an active node; the rates produce believable per-second
+    /// growth so the table looks alive on repeated SHOW SYSTEM.
+    struct SysProc {
+        let pid: String
+        let name: String
+        let baseState: String
+        let pri: Int
+        let ioBase: Int
+        let ioRate: Double         // I/O ops per second
+        let cpuBaseSec: Double     // CPU seconds at session start
+        let cpuRate: Double        // CPU share (0..1) of wall time
+        let faultBase: Int
+        let faultRate: Double      // page faults per second
+        let pagesBase: Int
+        let pagesAmp: Int          // working-set oscillation amplitude
+    }
+
+    /// Background ELEVATOR-CTRL / VMS system tasks shown above the cab
+    /// process block.
+    static let backgroundProcs: [SysProc] = [
+        SysProc(pid: "00000401", name: "SWAPPER",       baseState: "HIB", pri: 16,
+                ioBase: 0,    ioRate: 0,    cpuBaseSec: 1.21,    cpuRate: 0.00005,
+                faultBase: 0,    faultRate: 0,    pagesBase: 0,    pagesAmp: 0),
+        SysProc(pid: "00000402", name: "NULL",          baseState: "COM", pri: 0,
+                ioBase: 0,    ioRate: 0,    cpuBaseSec: 259_200, cpuRate: 0.55,
+                faultBase: 0,    faultRate: 0,    pagesBase: 0,    pagesAmp: 0),
+        SysProc(pid: "00000403", name: "ELEVATOR_CTL",  baseState: "LEF", pri: 8,
+                ioBase: 4823, ioRate: 1.7,  cpuBaseSec: 92.14,   cpuRate: 0.012,
+                faultBase: 1842, faultRate: 0.4, pagesBase: 3104, pagesAmp: 64),
+        SysProc(pid: "00000404", name: "DISPATCH",      baseState: "LEF", pri: 7,
+                ioBase: 2204, ioRate: 0.9,  cpuBaseSec: 48.21,   cpuRate: 0.0060,
+                faultBase: 412, faultRate: 0.12, pagesBase: 1480, pagesAmp: 40),
+        SysProc(pid: "00000405", name: "HALL_CALL_MGR", baseState: "LEF", pri: 6,
+                ioBase: 1187, ioRate: 0.5,  cpuBaseSec: 24.04,   cpuRate: 0.0030,
+                faultBase: 284, faultRate: 0.08, pagesBase: 720, pagesAmp: 24),
+        SysProc(pid: "00000406", name: "DOOR_SVC",      baseState: "LEF", pri: 6,
+                ioBase: 942,  ioRate: 0.35, cpuBaseSec: 18.42,   cpuRate: 0.0025,
+                faultBase: 212, faultRate: 0.06, pagesBase: 612, pagesAmp: 20),
+        SysProc(pid: "00000407", name: "BRAKE_MON",     baseState: "HIB", pri: 7,
+                ioBase: 84,   ioRate: 0.04, cpuBaseSec: 2.18,    cpuRate: 0.0003,
+                faultBase: 48, faultRate: 0.01, pagesBase: 180, pagesAmp: 12),
+        SysProc(pid: "00000408", name: "WEIGHT_MON",    baseState: "HIB", pri: 6,
+                ioBase: 62,   ioRate: 0.03, cpuBaseSec: 1.42,    cpuRate: 0.00025,
+                faultBase: 38, faultRate: 0.008, pagesBase: 148, pagesAmp: 10),
+        SysProc(pid: "00000409", name: "LOGGER",        baseState: "LEF", pri: 4,
+                ioBase: 208,  ioRate: 0.18, cpuBaseSec: 4.81,    cpuRate: 0.0008,
+                faultBase: 72, faultRate: 0.02, pagesBase: 246, pagesAmp: 16),
+    ]
+
+    /// Network / Bonjour / maintenance services shown below the cab block.
+    static let serviceProcs: [SysProc] = [
+        SysProc(pid: "00000414", name: "COMM_NETSRV",   baseState: "LEF", pri: 6,
+                ioBase: 612,  ioRate: 0.5,  cpuBaseSec: 8.71,    cpuRate: 0.0014,
+                faultBase: 412, faultRate: 0.18, pagesBase: 1024, pagesAmp: 32),
+        SysProc(pid: "00000415", name: "BONJOUR_PUBSRV",baseState: "LEF", pri: 6,
+                ioBase: 144,  ioRate: 0.12, cpuBaseSec: 1.95,    cpuRate: 0.0003,
+                faultBase: 108, faultRate: 0.04, pagesBase: 384, pagesAmp: 16),
+        SysProc(pid: "00000416", name: "MAINT_AGENT",   baseState: "HIB", pri: 4,
+                ioBase: 72,   ioRate: 0.06, cpuBaseSec: 0.94,    cpuRate: 0.0001,
+                faultBase: 36, faultRate: 0.02, pagesBase: 158, pagesAmp: 10),
+    ]
+
+    private func renderSysProc(_ p: SysProc, elapsed: Double) -> String {
+        let io  = p.ioBase + Int(p.ioRate * elapsed)
+        let cpu = p.cpuBaseSec + p.cpuRate * elapsed
+        let flt = p.faultBase + Int(p.faultRate * elapsed)
+        // Stable per-process phase derived from the PID so two processes
+        // don't oscillate in lockstep.
+        let phase = Double(abs(p.pid.hashValue) % 360) * .pi / 180.0
+        let pgs  = p.pagesBase + Int(sin(elapsed / 6.0 + phase) * Double(p.pagesAmp))
+        // LEF (local-event-flag wait) processes occasionally flicker to COM
+        // for a 2-tick burst as if they were waking to service a request.
+        let bucket = (Int(elapsed * 0.3) + abs(p.pid.hashValue)) % 20
+        let state  = (p.baseState == "LEF" && bucket < 2) ? "COM" : p.baseState
+        return sysLine(p.pid, p.name, state, p.pri, io, formatVMSCPUTime(cpu), flt, max(0, pgs))
+    }
+
+    /// VMS-style CPU-time string: "<days> <hh>:<mm>:<ss>.<NN>" using
+    /// hundredths for the fractional part, matching real `SHOW SYSTEM`.
+    func formatVMSCPUTime(_ seconds: Double) -> String {
+        let clamp = max(0, seconds)
+        let total = Int(clamp * 100)
+        let hundredths = total % 100
+        let totalSec = total / 100
+        let d = totalSec / 86_400
+        let h = (totalSec % 86_400) / 3600
+        let m = (totalSec % 3600) / 60
+        let ss = totalSec % 60
+        return String(format: "%d %02d:%02d:%02d.%02d", d, h, m, ss, hundredths)
     }
 
     func showUsers() -> String {
@@ -194,9 +306,23 @@ extension DCLEngine {
                     max(procCount + 32, 160), 32, procCount)
         s += String(format: "  Balance Set Slots               %4d       %4d       %4d            0\n",
                     max(resident + 18, 140), 18, resident)
+        // Dynamic-memory pools have no direct Mach analog -- oscillate
+        // around realistic baselines so the figures look like a live
+        // VMS kernel rather than a frozen snapshot.
+        let t = Date().timeIntervalSinceReferenceDate
+        let npTotal = 524288
+        let npFree  = 94216 + Int(sin(t / 7.0) * 6400)
+        let npUse   = npTotal - npFree
+        let npLarge = 18432 + Int(sin(t / 11.0 + 1.3) * 1800)
+        let pgTotal = 262144
+        let pgFree  = 72488 + Int(sin(t / 6.0 + 0.7) * 3200)
+        let pgUse   = pgTotal - pgFree
+        let pgLarge = 12104 + Int(sin(t / 13.0 + 2.4) * 900)
         s += "\nDynamic Memory Usage (bytes):      Total       Free    In Use      Largest\n"
-        s += "  Non-Paged Dynamic Memory        524288      94216    430072        18432\n"
-        s += "  Paged Dynamic Memory            262144      72488    189656        12104\n\n"
+        s += String(format: "  Non-Paged Dynamic Memory      %8d   %8d  %8d     %8d\n",
+                    npTotal, max(0, npFree), max(0, npUse), max(0, npLarge))
+        s += String(format: "  Paged Dynamic Memory          %8d   %8d  %8d     %8d\n\n",
+                    pgTotal, max(0, pgFree), max(0, pgUse), max(0, pgLarge))
         s += "Paging File Usage (pages):     Free  Reservable      Total\n"
         s += "  DISK$ELEV_SYS:[SYS0.SYSEXE]PAGEFILE.SYS\n"
         s += String(format: "                              %8llu    %8llu   %8llu\n",

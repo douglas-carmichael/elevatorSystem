@@ -401,22 +401,38 @@ extension DCLEngine {
     }
 
     func monitorLock() -> String {
+        // The Mach kernel doesn't expose VMS-distributed-lock-manager
+        // counters, so we synthesize believable rates anchored to the
+        // live VM lookup rate (a per-second figure that genuinely
+        // changes refresh-to-refresh) plus a per-row sin oscillation so
+        // each lock-rate row drifts independently rather than tracking
+        // every other row in lockstep.
+        let rates = host.vmRates()
+        let t = Date().timeIntervalSinceReferenceDate
+        let base = max(0.4, rates.lookupRate / 800.0)
+        func wob(_ amp: Double, _ phase: Double) -> Double {
+            max(0, amp * base * (1.0 + 0.45 * sin(t / 7.0 + phase)))
+        }
+        // Cluster lock traffic only happens if there are remote peers.
+        let hasPeers = (network?.peers.count ?? 0) > 0
+        let netScale = hasPeers ? 1.0 : 0.0
+
         var s = mheader("LOCK MANAGEMENT STATISTICS")
         s += mcolHeader()
-        s += mrow("New ENQ Rate (Local)",         3.21)
-        s += mrow("Converted ENQ Rate (Local)",   1.04)
-        s += mrow("DEQ Rate (Local)",             3.18)
-        s += mrow("Blocking AST Rate (Local)",    0.04)
-        s += mrow("New ENQ Rate (Incoming)",      0.0)
-        s += mrow("Converted ENQ Rate (Incoming)", 0.0)
-        s += mrow("DEQ Rate (Incoming)",          0.0)
-        s += mrow("New ENQ Rate (Outgoing)",      0.0)
-        s += mrow("Converted ENQ Rate (Outgoing)", 0.0)
-        s += mrow("DEQ Rate (Outgoing)",          0.0)
-        s += mrow("Blocking AST Rate (Outgoing)", 0.0)
-        s += mrow("Dir Function Rate (Incoming)", 0.0)
-        s += mrow("Dir Function Rate (Outgoing)", 0.0)
-        s += mrow("Deadlock Search Rate",         0.0)
+        s += mrow("New ENQ Rate (Local)",          wob(3.2, 0.0))
+        s += mrow("Converted ENQ Rate (Local)",    wob(1.05, 1.1))
+        s += mrow("DEQ Rate (Local)",              wob(3.18, 2.2))
+        s += mrow("Blocking AST Rate (Local)",     wob(0.04, 3.3))
+        s += mrow("New ENQ Rate (Incoming)",       netScale * wob(0.6, 4.4))
+        s += mrow("Converted ENQ Rate (Incoming)", netScale * wob(0.2, 5.5))
+        s += mrow("DEQ Rate (Incoming)",           netScale * wob(0.6, 0.7))
+        s += mrow("New ENQ Rate (Outgoing)",       netScale * wob(0.6, 1.8))
+        s += mrow("Converted ENQ Rate (Outgoing)", netScale * wob(0.2, 2.9))
+        s += mrow("DEQ Rate (Outgoing)",           netScale * wob(0.6, 4.0))
+        s += mrow("Blocking AST Rate (Outgoing)",  netScale * wob(0.02, 0.5))
+        s += mrow("Dir Function Rate (Incoming)",  netScale * wob(0.04, 1.6))
+        s += mrow("Dir Function Rate (Outgoing)",  netScale * wob(0.04, 2.7))
+        s += mrow("Deadlock Search Rate",          0.0)
         s += mrow("Deadlock Find Rate",           0.0)
         return s
     }
@@ -452,17 +468,39 @@ extension DCLEngine {
     }
 
     func monitorFCP() -> String {
+        // VMS FCP (Files-11 XQP) counters have no direct Mac equivalent,
+        // so the rates are anchored where they make semantic sense to a
+        // live host counter -- disk read/write to physicalDiskRates, page
+        // faults to vmRates -- and the remaining FCP-only rows oscillate
+        // around their baseline so the table looks like a live filesystem.
+        let rates = host.vmRates()
+        let disks = host.diskRates()
+        let totalDiskOps = disks.reduce(0.0) { $0 + $1.totalOpsPerSec }
+        let totalDiskRead = disks.reduce(0.0) { $0 + $1.readOpsPerSec }
+        let totalDiskWrite = disks.reduce(0.0) { $0 + $1.writeOpsPerSec }
+        let t = Date().timeIntervalSinceReferenceDate
+        // Cache hit rate sourced from real VM lookups vs hits, falling
+        // back to ~93% if the kernel hasn't yet served any lookups.
+        let cacheHits: Double
+        if rates.lookupRate > 0.1 {
+            cacheHits = min(99.5, max(50.0, rates.hitRate * 100.0 / max(1.0, rates.lookupRate)))
+        } else {
+            cacheHits = 92.0 + sin(t / 9.0) * 3.5
+        }
+        func osc(_ amp: Double, _ phase: Double) -> Double {
+            max(0, amp * (1.0 + 0.35 * sin(t / 6.0 + phase)))
+        }
         var s = mheader("FILE PRIMITIVE STATISTICS")
         s += mcolHeader()
-        s += mrow("FCP Call Rate",                4.21)
-        s += mrow("Allocation Rate",              0.40)
-        s += mrow("Create Rate",                  0.04)
-        s += mrow("Disk Read Rate",               12.41)
-        s += mrow("Disk Write Rate",              4.04)
-        s += mrow("Cache Hit Rate",               92.81)
-        s += mrow("Volume Lock Wait Rate",        0.04)
-        s += mrow("CPU Tick Rate",                4.21)
-        s += mrow("File Sys Page Fault Rate",     0.40)
+        s += mrow("FCP Call Rate",                osc(4.2, 0.0))
+        s += mrow("Allocation Rate",              osc(0.4, 1.1))
+        s += mrow("Create Rate",                  osc(0.04, 2.2))
+        s += mrow("Disk Read Rate",               totalDiskRead)
+        s += mrow("Disk Write Rate",              totalDiskWrite)
+        s += mrow("Cache Hit Rate",               cacheHits)
+        s += mrow("Volume Lock Wait Rate",        osc(0.04, 3.3))
+        s += mrow("CPU Tick Rate",                osc(4.2, 4.4) + totalDiskOps * 0.01)
+        s += mrow("File Sys Page Fault Rate",     rates.pageFaultRate * 0.0004)
         return s
     }
 }

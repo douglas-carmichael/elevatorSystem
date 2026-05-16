@@ -124,6 +124,12 @@ final class DCLEngine: ObservableObject {
     var editorInsertMode: Bool = false
     var editorPreviousPrompt: String = "$ "
 
+    /// Captured at engine init. SHOW SYSTEM uses this as the anchor for
+    /// the synthetic per-process counters so the displayed I/O, CPU time
+    /// and page faults grow monotonically across refreshes and the table
+    /// looks like a live system instead of a static snapshot.
+    let sessionStart: Date = Date()
+
     var bootTime: Date { host.bootDate }
 
     init() {
