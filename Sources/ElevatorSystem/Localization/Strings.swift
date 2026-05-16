@@ -130,12 +130,81 @@ enum Strings {
                                     "BOBINES  (FC 01 lecture, FC 05 écriture)")
         add("modbus.legend.di",     "DISCRETE INPUTS  (FC 02, read-only)",
                                     "ENTRÉES TOR  (FC 02, lecture seule)")
+        add("modbus.reg.position",   "position × 10",
+                                     "position × 10")
+        add("modbus.reg.direction",  "direction (0=idle 1=up 2=dn)",
+                                     "direction (0=repos 1=mte 2=dsc)")
+        add("modbus.reg.doorstate",  "door state (0=closed..3=closing)",
+                                     "état portes (0=fermée..3=fermeture)")
+        add("modbus.reg.queue",      "queue depth",
+                                     "profondeur file")
+        add("modbus.reg.doorprog",   "door progress %",
+                                     "progression portes %")
+        add("modbus.reg.velocity",   "velocity × 100 (signed Int16)",
+                                     "vitesse × 100 (Int16 signé)")
+        add("modbus.reg.cabcount",   "cab count   /  101 peer count",
+                                     "nb cabines   /  101 nb pairs")
+        add("modbus.reg.bldgflrs",   "building floors",
+                                     "étages bâtiment")
+        add("modbus.reg.telnetmb",   "telnet sessions  /  104 modbus clients",
+                                     "sessions telnet  /  104 clients modbus")
+        add("modbus.reg.bldgmode",   "building mode  0=norm 1=fire 2=epo",
+                                     "mode bâtiment  0=norm 1=feu 2=arr")
+        add("modbus.reg.recallflr",  "recall floor",
+                                     "étage de rappel")
+        add("modbus.reg.alarms",     "active alarms  /  108 highest severity",
+                                     "alarmes actives  /  108 sévérité max")
+        add("modbus.reg.dispatch",   "dispatch  0=collective 1=destination",
+                                     "régulation  0=collective 1=destination")
+        add("modbus.reg.profile",    "profile  0=PAX  1=FRT",
+                                     "profil  0=PAX  1=FRT")
+        add("modbus.reg.cabmode",    "mode     0=MAN  1=AUTO",
+                                     "mode     0=MAN  1=AUTO")
+        add("modbus.reg.target",     "target floor -- write to CALL",
+                                     "étage cible -- écrire pour APPELER")
+        add("modbus.reg.dooropen",   "doors OPEN command (pulse 1)",
+                                     "commande OUVRIR portes (impulsion 1)")
+        add("modbus.reg.doorclose",  "doors CLOSE command",
+                                     "commande FERMER portes")
+        add("modbus.reg.stop",       "STOP / cancel queue",
+                                     "ARRÊT / annuler file")
+        add("modbus.reg.cablocal",   "cab is locally owned",
+                                     "cabine locale")
+        add("modbus.reg.cabmoving",  "cab is moving",
+                                     "cabine en mouvement")
+        add("modbus.reg.dooropened", "doors are open",
+                                     "portes ouvertes")
+        add("modbus.reg.brake",      "holding brake engaged",
+                                     "frein de stationnement serré")
+        add("modbus.reg.obstructed", "door light-curtain obstructed",
+                                     "cellule porte obstruée")
+        add("modbus.reg.hallcalls",  "active hall-call count",
+                                     "nb appels palier actifs")
         add("help.k.esc",           "Close this overlay",                  "Fermer cette aide")
         add("help.dismiss",         "PRESS  ESC  TO DISMISS",              "APPUYEZ SUR ESC POUR FERMER")
         add("help.focus.hint",      "FOCUSED CAB",                         "CABINE FOCALISÉE")
 
         add("hud.cabs",             "CABS ONLINE",                         "CABINES ACTIVES")
         add("hud.floors",           "FLOORS",                              "ÉTAGES")
+        add("scene.recenter",       "RECENTER",                            "RECENTRER")
+        add("scene.isolate",        "ISOLATE",                             "ISOLER")
+        add("scene.isolated.prefix","ISOLATED:",                           "ISOLÉ :")
+
+        add("dynamics.title",       "CAB DYNAMICS MONITOR (LPD)",
+                                    "MONITEUR DYNAMIQUE CABINES (LPD)")
+        add("dynamics.subtitle",    "Live trapezoidal velocity profile -- sampled every 500 ms",
+                                    "Profil trapézoïdal en direct -- échantillon toutes les 500 ms")
+        add("dynamics.col.cab",     "CAB",                                 "CAB")
+        add("dynamics.col.pos",     "POSITION",                            "POSITION")
+        add("dynamics.col.vel",     "VELOCITY",                            "VITESSE")
+        add("dynamics.col.acc",     "ACCEL",                               "ACCÉL.")
+        add("dynamics.col.tgt",     "TARGET",                              "CIBLE")
+        add("dynamics.col.state",   "STATE",                               "ÉTAT")
+        add("dynamics.empty",       "(no cabs registered)",                "(aucune cabine enregistrée)")
+        add("dynamics.profile.limits","PROFILE LIMITS:",                   "LIMITES PROFIL :")
+        add("dynamics.refresh",     "REFRESH 500 ms   -   PRESS Y FROM CONTROL PANEL TO TOGGLE",
+                                    "RAFRAÎCHI 500 ms   -   APPUYEZ Y DEPUIS LE PUPITRE")
+        add("help.k.dynamics",      "Open cab dynamics monitor",           "Ouvrir le moniteur de dynamique cabines")
 
         add("misc.unknown",         "UNKNOWN",                             "INCONNU")
         add("misc.none",            "NONE",                                "AUCUN")
@@ -147,6 +216,7 @@ enum Strings {
         add("alarm.ack",            "ACK",                                 "ACQ.")
         add("alarm.ack.all",        "ACK ALL",                             "TOUT ACQ.")
         add("alarm.clear.ack",      "CLEAR ACK",                           "EFF. ACQ.")
+        add("alarm.inject",         "INJECT",                              "INJECTER")
         add("alarm.none.active",    "NO ACTIVE ALARMS",                    "AUCUNE ALARME ACTIVE")
         add("alarm.col.id",         "ID",                                  "ID")
         add("alarm.col.sev",        "SEV",                                 "GRAV.")
@@ -173,6 +243,8 @@ enum Strings {
         add("alarm.msg.doorheld",   "Doors held open beyond dwell time",    "Portes ouvertes au-delà de la temporisation")
         add("alarm.msg.doorclose",  "Door close cycle exceeded limit",      "Cycle de fermeture portes trop long")
         add("alarm.msg.dispatchstall", "Queued cab failed to start",         "Cabine en file sans démarrage")
+        add("alarm.msg.terminallimit","Terminal limit switch tripped",       "Fin de course terminal déclenché")
+        add("alarm.msg.brakehold",  "Brake commanded while cab is moving",   "Frein commandé alors que la cabine bouge")
         add("dcl.alarm.title",      "Elevator SCADA alarm log at %@",       "Journal des alarmes SCADA ascenseur à %@")
         add("dcl.alarm.header",     "  ID    Time                         Severity   State    Source     Point          Message",
                                     "  ID    Heure                        Gravité    État     Source     Point          Message")

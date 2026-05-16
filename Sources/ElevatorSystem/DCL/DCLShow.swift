@@ -37,10 +37,57 @@ extension DCLEngine {
         case matches(what, "CONNECTIONS", min: 4): return showConnections()
         case matches(what, "AUDIT",       min: 3): return showAudit()
         case matches(what, "DIAGNOSTICS", min: 4): return showDiagnostics()
+        case matches(what, "CALLS",       min: 4): return showCalls()
         default:
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
         }
+    }
+
+    /// SHOW CALLS -- lists currently latched landing-fixture (hall)
+    /// calls and the in-cab car-call queue per cab. Real systems
+    /// distinguish the two sources: a hall-call rider is in the lobby
+    /// waiting; a car-call rider is already onboard. The lantern at
+    /// the landing stays lit until a cab arrives in the requested
+    /// direction.
+    func showCalls() -> String {
+        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
+        var s = "\n  Active landing-fixture (hall) calls:\n"
+        s += "    Seq   Floor  Dir  Assigned cab\n"
+        s += "    ----  -----  ---  ----------------\n"
+        if world.hallCalls.isEmpty {
+            s += "    (none)\n"
+        } else {
+            for c in world.hallCalls.prefix(20) {
+                let dirLabel = c.direction == .up ? "UP " : "DN "
+                let cabName: String
+                if let cabId = c.assignedCabId,
+                   let cab = world.elevators.first(where: { $0.id == cabId }) {
+                    cabName = world.displayLabel(for: cab)
+                } else {
+                    cabName = "(unassigned)"
+                }
+                s += String(format: "    %04d  %5d  %@  %@\n",
+                            c.sequence, c.floor, dirLabel, cabName)
+            }
+        }
+        s += "\n  In-cab (car) call queues:\n"
+        s += "    Cab        Queue\n"
+        s += "    ---------  ---------------------------------\n"
+        let cabs = world.sortedElevators.filter { $0.ownerPeerId == world.localPeerId }
+        if cabs.isEmpty {
+            s += "    (no local cabs)\n"
+        } else {
+            for cab in cabs {
+                let cabLabel = world.displayLabel(for: cab)
+                    .padding(toLength: 9, withPad: " ", startingAt: 0)
+                let queueStr = cab.queue.isEmpty
+                    ? "(empty)"
+                    : cab.queue.map { String($0) }.joined(separator: " -> ")
+                s += "    \(cabLabel)  \(queueStr)\n"
+            }
+        }
+        return s
     }
 
     func showDispatch() -> String {
@@ -111,6 +158,8 @@ extension DCLEngine {
         case Strings.lookup("alarm.msg.doorheld", lang: .en): return tr("alarm.msg.doorheld")
         case Strings.lookup("alarm.msg.doorclose", lang: .en): return tr("alarm.msg.doorclose")
         case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return tr("alarm.msg.dispatchstall")
+        case Strings.lookup("alarm.msg.terminallimit", lang: .en): return tr("alarm.msg.terminallimit")
+        case Strings.lookup("alarm.msg.brakehold", lang: .en): return tr("alarm.msg.brakehold")
         default: return message
         }
     }

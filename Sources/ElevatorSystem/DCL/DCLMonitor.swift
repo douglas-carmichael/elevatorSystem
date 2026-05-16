@@ -559,10 +559,12 @@ extension DCLEngine {
     }
 
     private func dynamicsState(for cab: Elevator) -> String {
+        if cab.doorObstructed { return "OBSTR" }
         if cab.doors == .opening || cab.doors == .closing { return "DOORS" }
         if cab.doors == .open { return "PARKED" }
         if cab.phaseTwoActive { return "PHASE-II" }
         if cab.independentActive { return "INDEP" }
+        if cab.brakeEngaged && cab.queue.first != nil { return "BRAKE" }
         guard let target = cab.queue.first else {
             return abs(cab.velocity) > 0.05 ? "STOPPING" : "IDLE"
         }

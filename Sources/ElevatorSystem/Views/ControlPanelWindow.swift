@@ -91,6 +91,9 @@ struct ControlPanelWindow: View {
         case "s":
             openWindow(id: "scene")
             return nil
+        case "y":
+            openWindow(id: "dynamics")
+            return nil
         case "a":
             toggleFocusedAutomation()
             return nil
@@ -281,6 +284,7 @@ private struct StatusStrip: View {
 private struct SCADAAlarmPanel: View {
     @EnvironmentObject var world: ElevatorWorld
     @EnvironmentObject var language: AppLanguage
+    @State private var injectorTask: Task<Void, Never>? = nil
 
     var body: some View {
         BoxPanel(title: language.t("alarm.panel.title"), accent: panelAccent) {
@@ -293,6 +297,9 @@ private struct SCADAAlarmPanel: View {
                                value: "\(world.unacknowledgedAlarmCount)",
                                valueColor: world.unacknowledgedAlarmCount == 0 ? RetroTheme.green : RetroTheme.amberBright)
                     Spacer()
+                    RetroButton(language.t("alarm.inject"), highlighted: isInjecting) {
+                        toggleInjector()
+                    }
                     RetroButton(language.t("alarm.ack.all"), enabled: world.unacknowledgedAlarmCount > 0) {
                         _ = world.acknowledgeAllAlarms()
                     }
@@ -310,6 +317,73 @@ private struct SCADAAlarmPanel: View {
                 alarmTable
             }
         }
+        .onDisappear {
+            injectorTask?.cancel()
+            injectorTask = nil
+        }
+    }
+
+    private var isInjecting: Bool { injectorTask != nil }
+
+    private func toggleInjector() {
+        if let t = injectorTask {
+            t.cancel()
+            injectorTask = nil
+            return
+        }
+        injectorTask = Task { @MainActor in
+            // Brief grace period so a quick toggle doesn't fire instantly.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            while !Task.isCancelled {
+                injectRandomAlarm()
+                let delaySec = Double.random(in: 4.0...10.0)
+                try? await Task.sleep(nanoseconds: UInt64(delaySec * 1_000_000_000))
+            }
+        }
+    }
+
+    private struct InjectorPick {
+        let source: String
+        let point: String
+        let severity: AlarmSeverity
+        let messageKey: String
+    }
+
+    private static let injectorPool: [InjectorPick] = [
+        .init(source: "SYS", point: "CONTROLLER",    severity: .major,    messageKey: "alarm.msg.controller"),
+        .init(source: "CAB", point: "DOOR_ZONE",     severity: .minor,    messageKey: "alarm.msg.doorzone"),
+        .init(source: "CAB", point: "BRAKE",         severity: .critical, messageKey: "alarm.msg.brake"),
+        .init(source: "NET", point: "PEER_LINK",     severity: .major,    messageKey: "alarm.msg.peerlink"),
+        .init(source: "PWR", point: "MAINS",         severity: .critical, messageKey: "alarm.msg.mains"),
+        .init(source: "CAB", point: "DOOR_HELD",     severity: .minor,    messageKey: "alarm.msg.doorheld"),
+        .init(source: "CAB", point: "OVERSPEED",     severity: .major,    messageKey: "alarm.msg.overspeed"),
+        .init(source: "CAB", point: "LANDING_ZONE",  severity: .minor,    messageKey: "alarm.msg.landingzone"),
+        .init(source: "SYS", point: "DISPATCH",      severity: .advisory, messageKey: "alarm.msg.dispatchstall"),
+    ]
+
+    private func injectRandomAlarm() {
+        guard let pick = Self.injectorPool.randomElement() else { return }
+        let resolvedSource: String
+        if pick.source == "CAB" {
+            let local = world.elevators.filter { $0.ownerPeerId == world.localPeerId }
+            if let cab = local.randomElement() {
+                resolvedSource = "CAB \(world.displayLabel(for: cab))"
+            } else {
+                resolvedSource = "CAB GROUP"
+            }
+        } else {
+            resolvedSource = pick.source
+        }
+        // Skip if an identical alarm is already active so the injector
+        // creates new rows instead of stacking duplicates on one point.
+        let dup = world.activeAlarms.contains {
+            $0.source == resolvedSource && $0.point == pick.point
+        }
+        if dup { return }
+        _ = world.raiseAlarm(source: resolvedSource,
+                             point: pick.point,
+                             severity: pick.severity,
+                             message: Strings.lookup(pick.messageKey, lang: .en))
     }
 
     private var alarmTable: some View {
@@ -458,6 +532,8 @@ private struct AlarmRow: View {
         case Strings.lookup("alarm.msg.doorheld", lang: .en): return language.t("alarm.msg.doorheld")
         case Strings.lookup("alarm.msg.doorclose", lang: .en): return language.t("alarm.msg.doorclose")
         case Strings.lookup("alarm.msg.dispatchstall", lang: .en): return language.t("alarm.msg.dispatchstall")
+        case Strings.lookup("alarm.msg.terminallimit", lang: .en): return language.t("alarm.msg.terminallimit")
+        case Strings.lookup("alarm.msg.brakehold", lang: .en): return language.t("alarm.msg.brakehold")
         default: return alarm.message
         }
     }
@@ -738,6 +814,7 @@ private struct HelpOverlay: View {
                     row("D",         language.t("help.k.dcl"))
                     row("A",         language.t("help.k.mode"))
                     row("M",         language.t("help.k.modbus"))
+                    row("Y",         language.t("help.k.dynamics"))
                     row("Q",         language.t("help.k.quit"))
                     row("ESC",       language.t("help.k.esc"))
                     Spacer().frame(height: 6)
@@ -851,37 +928,40 @@ private struct ModbusLegendOverlay: View {
                     Spacer().frame(height: 4)
 
                     section(language.t("modbus.legend.ir"))
-                    row("0..7",   "position × 10")
-                    row("8..15",  "direction (0=idle 1=up 2=dn)")
-                    row("16..23", "door state (0=closed..3=closing)")
-                    row("24..31", "queue depth")
-                    row("32..39", "door progress %")
-                    row("40..47", "velocity × 100 (signed Int16)")
-                    row("100",    "cab count   /  101 peer count")
-                    row("102",    "building floors")
-                    row("103",    "telnet sessions  /  104 modbus clients")
-                    row("105",    "building mode  0=norm 1=fire 2=epo")
-                    row("106",    "recall floor")
-                    row("107",    "active alarms  /  108 highest severity")
-                    row("109",    "dispatch  0=collective 1=destination")
+                    row("0..7",   language.t("modbus.reg.position"))
+                    row("8..15",  language.t("modbus.reg.direction"))
+                    row("16..23", language.t("modbus.reg.doorstate"))
+                    row("24..31", language.t("modbus.reg.queue"))
+                    row("32..39", language.t("modbus.reg.doorprog"))
+                    row("40..47", language.t("modbus.reg.velocity"))
+                    row("100",    language.t("modbus.reg.cabcount"))
+                    row("102",    language.t("modbus.reg.bldgflrs"))
+                    row("103",    language.t("modbus.reg.telnetmb"))
+                    row("105",    language.t("modbus.reg.bldgmode"))
+                    row("106",    language.t("modbus.reg.recallflr"))
+                    row("107",    language.t("modbus.reg.alarms"))
+                    row("109",    language.t("modbus.reg.dispatch"))
+                    row("110",    language.t("modbus.reg.hallcalls"))
 
                     Spacer().frame(height: 4)
                     section(language.t("modbus.legend.hr"))
-                    row("0..7",   "profile  0=PAX  1=FRT")
-                    row("8..15",  "mode     0=MAN  1=AUTO")
-                    row("16..23", "target floor -- write to CALL")
+                    row("0..7",   language.t("modbus.reg.profile"))
+                    row("8..15",  language.t("modbus.reg.cabmode"))
+                    row("16..23", language.t("modbus.reg.target"))
 
                     Spacer().frame(height: 4)
                     section(language.t("modbus.legend.coil"))
-                    row("0..7",   "doors OPEN command (pulse 1)")
-                    row("8..15",  "doors CLOSE command")
-                    row("16..23", "STOP / cancel queue")
+                    row("0..7",   language.t("modbus.reg.dooropen"))
+                    row("8..15",  language.t("modbus.reg.doorclose"))
+                    row("16..23", language.t("modbus.reg.stop"))
 
                     Spacer().frame(height: 4)
                     section(language.t("modbus.legend.di"))
-                    row("0..7",   "cab is locally owned")
-                    row("8..15",  "cab is moving")
-                    row("16..23", "doors are open")
+                    row("0..7",   language.t("modbus.reg.cablocal"))
+                    row("8..15",  language.t("modbus.reg.cabmoving"))
+                    row("16..23", language.t("modbus.reg.dooropened"))
+                    row("24..31", language.t("modbus.reg.brake"))
+                    row("32..39", language.t("modbus.reg.obstructed"))
 
                     Spacer().frame(height: 8)
                     Text(language.t("help.dismiss"))

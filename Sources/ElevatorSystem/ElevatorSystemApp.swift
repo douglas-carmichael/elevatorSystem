@@ -59,6 +59,13 @@ struct ElevatorSystemApp: App {
                 .environmentObject(dcl)
         }
         .windowResizability(.contentMinSize)
+
+        WindowGroup("Cab Dynamics", id: "dynamics") {
+            DynamicsMonitorWindow()
+                .environmentObject(language)
+                .environmentObject(world)
+        }
+        .windowResizability(.contentMinSize)
     }
 
     private func bootstrap() {

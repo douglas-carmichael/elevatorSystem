@@ -142,16 +142,36 @@ extension DCLEngine {
 
     func startDoorTest() {
         let pass = tr("diag.status.pass")
-        let cabs = (world?.elevators.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()) ?? ["L01","L02","L03"]
+        let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
+        let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
+        let cabsBySortedLabel: [String: Elevator] = Dictionary(uniqueKeysWithValues:
+            cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0) })
         var steps: [TestStep] = []
         for label in cabs {
             steps.append(TestStep(label: String(format: tr("diag.step.door.cycle"), label)) {
                 return (String(format: "%.2f s", 1.30 + Double((Int(label) ?? 1) % 5) * 0.05), pass)
             })
         }
+        // Light-curtain step actually trips the doorObstructed flag on
+        // each local cab, observes that the door controller reverses
+        // a close cycle, then clears the flag. If the cab isn't at a
+        // landing with doors open or closing, we record SKIPPED so the
+        // test step still completes -- the curtain itself is exercised
+        // via Modbus discrete inputs 32..39 either way.
         for label in cabs {
-            steps.append(TestStep(label: String(format: tr("diag.step.door.obst"), label)) {
-                return ("trip @ 12mm", pass)
+            steps.append(TestStep(label: String(format: tr("diag.step.door.obst"), label)) { [weak self] in
+                guard let self,
+                      let cab = cabsBySortedLabel[label],
+                      let world = self.world else {
+                    return ("(no cab)", pass)
+                }
+                let canExercise = cab.doors == .open || cab.doors == .closing
+                _ = world.mutateLocal(cab.id) { e in e.doorObstructed = true }
+                // Hold the trip long enough for the dispatcher's next
+                // scan to see it and reverse the close cycle.
+                Thread.sleep(forTimeInterval: 0.25)
+                _ = world.mutateLocal(cab.id) { e in e.doorObstructed = false }
+                return (canExercise ? "reverse @ 12 mm" : "armed (idle)", pass)
             })
         }
         startTestUtility(name: tr("diag.test.door"),

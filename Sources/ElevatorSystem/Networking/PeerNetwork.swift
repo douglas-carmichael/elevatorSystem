@@ -2,6 +2,20 @@ import Foundation
 import Network
 import Combine
 
+// SIMULATION TRANSPORT.
+//
+// This module uses Bonjour / mDNS (service type `_elevatorsys._tcp`)
+// to discover other instances of the simulator running on the same
+// LAN. In a real elevator install, group dispatchers do NOT find each
+// other by mDNS -- they talk over a hard-wired fieldbus (CANopen-Lift,
+// KNX, BACnet, LON, or a vendor-specific RS-485 trunk) with statically
+// configured node addresses, redundancy, and a deterministic scan
+// cycle. Bonjour is used here only because the simulator runs on
+// regular macOS hardware where a real fieldbus isn't available; the
+// peer-protocol payloads (`Networking/Protocol.swift`) are kept small
+// and idempotent so the same code could in principle run over a
+// fieldbus driver substituted at this layer.
+
 struct DiscoveredPeer: Identifiable, Hashable {
     let id: String          // remote peerId
     let displayName: String

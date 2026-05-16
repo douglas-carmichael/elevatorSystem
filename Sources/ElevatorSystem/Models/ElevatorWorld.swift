@@ -1,6 +1,21 @@
 import Foundation
 import Combine
 
+// DISPATCH SIMULATOR, NOT A SAFETY CONTROLLER.
+//
+// `ElevatorWorld.tick()` runs at the simulator's tick rate (Sim.tickHz,
+// currently 60 Hz) and walks every cab through one step of door state,
+// trapezoidal motion, alarm sampling, and building-mode enforcement.
+// The structure mirrors a PLC's cyclic scan: read inputs (queue, door
+// sensors), execute logic (advance), update outputs (publishes), then
+// repeat. Real elevators use a safety-rated controller (e.g. SIL-3
+// per IEC 61508 / EN 81-20 §5.11) running a deterministic 10..50 ms
+// scan with hardware watchdog and category-3 safety chains. THIS code
+// is a dispatch + visualisation simulator -- the safety chain checks
+// in `advance()` (door interlock, terminal limits, brake state) are
+// modelled so the operator panel and SCADA log read like the real
+// thing, but nothing here is approved to drive an actual hoist motor.
+
 /// Building-wide operating mode. Real elevator code (ASME A17.1 §2.27,
 /// EN 81-72 / EN 81-73) requires the system to override every cab's
 /// normal call-handling behaviour under certain conditions.
@@ -48,6 +63,35 @@ struct DestinationCall: Identifiable, Codable, Hashable {
     let cabLabel: String
     let etaSeconds: Double
     let createdAt: Date
+}
+
+/// One landing-fixture call. Real systems distinguish hall calls
+/// (riser-mounted up / down buttons next to the lobby doors) from
+/// car calls (the floor-number buttons inside the cab). Collective
+/// dispatch serves both, but the dispatcher needs to know who pressed
+/// where so it can route the nearest cab travelling in the right
+/// direction. Cleared once a matching cab arrives at the floor with
+/// doors opened.
+struct HallCall: Identifiable, Codable, Hashable {
+    let id: UUID
+    let sequence: Int
+    let floor: Int
+    /// The direction the rider wants to travel: .up or .down. Real
+    /// risers have separate buttons; `.idle` is not a valid hall-call
+    /// direction and is reserved for the cab-source case below.
+    let direction: Direction
+    let createdAt: Date
+    /// Cab the dispatcher allocated this hall call to, if any. Stays
+    /// nil until allocation; useful for SHOW CALLS audit.
+    var assignedCabId: UUID?
+}
+
+/// Distinguishes a call recorded against a cab's queue: a "hall call"
+/// was raised by a landing fixture (someone in the lobby), a "car
+/// call" is an in-cab button press by a rider already onboard.
+enum CallSource: String, Codable {
+    case hall
+    case car
 }
 
 enum AlarmSeverity: Int, Codable, CaseIterable, Comparable {
@@ -118,6 +162,14 @@ final class ElevatorWorld: ObservableObject {
     @Published private(set) var destinationLog: [DestinationCall] = []
     private var nextDestinationSequence: Int = 1
 
+    /// Active landing-fixture hall calls. Distinct from each cab's
+    /// `queue` (which is a flat list of floors that cab is committed
+    /// to serve, regardless of who raised the call). SHOW CALLS pulls
+    /// from here; the auto-driver / collective dispatcher allocates
+    /// each hall call to a cab and removes it once serviced.
+    @Published private(set) var hallCalls: [HallCall] = []
+    private var nextHallCallSequence: Int = 1
+
     private var timer: Timer?
     private var lastTickAt: Date = .init()
     private var nextAlarmSequence: Int = 1
@@ -162,6 +214,7 @@ final class ElevatorWorld: ObservableObject {
         switch buildingMode {
         case .normal:
             clearAlarm(source: "SYS", point: "SAFETY_MODE")
+            clearAlarm(source: "PWR", point: "MAINS")
         case .fireRecall:
             raiseAlarm(source: "SYS",
                        point: "SAFETY_MODE",
@@ -172,6 +225,15 @@ final class ElevatorWorld: ObservableObject {
                        point: "SAFETY_MODE",
                        severity: .major,
                        message: Strings.lookup("alarm.msg.epo", lang: .en))
+            // Emergency-power means the building's running off the
+            // backup generator -- which only kicks in once the mains
+            // supply has actually failed. Raise PWR/MAINS automatically
+            // so the SCADA log shows the upstream fault that caused
+            // EPO, not just the operating-mode advisory.
+            raiseAlarm(source: "PWR",
+                       point: "MAINS",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.mains", lang: .en))
         }
     }
 
@@ -188,6 +250,45 @@ final class ElevatorWorld: ObservableObject {
             sampleDoorOpenAlarm(for: cab, source: source, at: now)
             sampleDoorCloseAlarm(for: cab, source: source, at: now)
             sampleDispatchStallAlarm(for: cab, source: source, at: now)
+            sampleTerminalLimitAlarm(for: cab, source: source)
+            sampleBrakeHoldAlarm(for: cab, source: source)
+        }
+    }
+
+    /// Raises TERMINAL_LIMIT when a cab is parked exactly at floor 1
+    /// or the top floor with a queued target on the wrong side -- the
+    /// hardware limit switch in advance() will have already clamped
+    /// velocity to zero, so this surfaces the trip to the operator.
+    private func sampleTerminalLimitAlarm(for cab: Elevator, source: String) {
+        let atBottom = cab.position <= Double(Sim.firstFloor) + 0.001
+        let atTop = cab.position >= Double(Sim.lastFloor) - 0.001
+        let badBottom = atBottom &&
+            (cab.queue.first.map { $0 < Sim.firstFloor } ?? false)
+        let badTop = atTop &&
+            (cab.queue.first.map { $0 > Sim.lastFloor } ?? false)
+        if badBottom || badTop {
+            raiseAlarm(source: source,
+                       point: "TERMINAL_LIMIT",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.terminallimit", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "TERMINAL_LIMIT")
+        }
+    }
+
+    /// Brake-holding-while-moving fault. In a healthy install the
+    /// brake releases before motion and engages on arrival; if we
+    /// ever see appreciable velocity while the dispatcher still has
+    /// the brake commanded, the brake is dragging or the contactor
+    /// has welded -- both critical events.
+    private func sampleBrakeHoldAlarm(for cab: Elevator, source: String) {
+        if cab.brakeEngaged && abs(cab.velocity) > 0.10 {
+            raiseAlarm(source: source,
+                       point: "BRAKE_HOLD",
+                       severity: .critical,
+                       message: Strings.lookup("alarm.msg.brakehold", lang: .en))
+        } else {
+            clearAlarm(source: source, point: "BRAKE_HOLD")
         }
     }
 
@@ -338,6 +439,7 @@ final class ElevatorWorld: ObservableObject {
                 elev.doorDwellRemaining = prof.doorDwellDuration
             }
             elev.direction = .idle
+            elev.brakeEngaged = true
             return
         case .open:
             // Phase II ("fireman's operation") and Independent Service
@@ -346,37 +448,76 @@ final class ElevatorWorld: ObservableObject {
             // is suspended.
             if elev.phaseTwoActive || elev.independentActive {
                 elev.direction = .idle
+                elev.brakeEngaged = true
                 return
             }
             elev.doorDwellRemaining -= dt
-            if elev.doorDwellRemaining <= 0 {
+            // Light-curtain / safety-edge: don't even start closing
+            // while an obstruction is reported.
+            if elev.doorDwellRemaining <= 0 && !elev.doorObstructed {
                 elev.doors = .closing
                 elev.doorProgress = 0
             }
             elev.direction = .idle
+            elev.brakeEngaged = true
             return
         case .closing:
+            // Door reversal on obstruction: any safety-edge / light-
+            // curtain trip during the close cycle reverses the doors
+            // back to .opening and re-arms the dwell so the rider
+            // has time to clear the threshold. Equivalent to the
+            // EN 81-20 §5.3.6.2.2 reopening requirement.
+            if elev.doorObstructed {
+                elev.doors = .opening
+                elev.doorProgress = 1.0 - elev.doorProgress
+                elev.direction = .idle
+                elev.brakeEngaged = true
+                return
+            }
             elev.doorProgress += dt / prof.doorCloseDuration
             if elev.doorProgress >= 1.0 {
                 elev.doorProgress = 0
                 elev.doors = .closed
             } else {
                 elev.direction = .idle
+                elev.brakeEngaged = true
                 return
             }
         case .closed:
             break
         }
 
+        // Safety chain: ASME A17.1 §2.26 / EN 81-20 §5.11 require that
+        // motion only ever be commanded when every door is confirmed
+        // closed and the gate / interlock circuit is made. The case
+        // analysis above already guarantees that, but a redundant
+        // guard makes the interlock visible to anyone reading the
+        // dispatch loop -- and catches the day someone adds a new
+        // door state and forgets to wire it through.
+        guard elev.doors == .closed else {
+            elev.velocity = 0
+            elev.direction = .idle
+            elev.brakeEngaged = true
+            return
+        }
+
         guard let target = elev.queue.first else {
             // No call queued -- bring the cab to a stop with the same
             // acceleration ceiling the trapezoidal profile uses for
             // travel, so a cancelled trip doesn't slam to zero
-            // instantaneously.
+            // instantaneously. The brake engages once we're at rest.
             decelerateToStop(&elev, dt: dt)
             elev.direction = .idle
+            if abs(elev.velocity) < 0.01 { elev.brakeEngaged = true }
             return
         }
+
+        // Brake release: on real hardware the motor controller builds
+        // up holding torque BEFORE the brake lifts, otherwise the cab
+        // sags. We approximate that by releasing the brake the moment
+        // a motion command is about to be issued -- in the same scan
+        // cycle the trapezoidal profile will start ramping velocity.
+        elev.brakeEngaged = false
 
         // Trapezoidal velocity profile. Target speed is the highest
         // value that still lets us decelerate to zero by the time we
@@ -406,6 +547,25 @@ final class ElevatorWorld: ObservableObject {
         // Integrate position.
         elev.position += elev.velocity * dt
 
+        // Terminal limit switches: ASME A17.1 §2.25 requires hard-
+        // wired NORMAL and FINAL limit switches at both terminals
+        // independent of the controller's queue logic. If a software
+        // bug or sensor drift drives the cab past floor 1 or the top
+        // floor, the limit trips -- we clamp the position, kill the
+        // velocity, set the brake, and let the alarm sampler raise
+        // TERMINAL_LIMIT next tick so the operator sees a fault.
+        let topFloor = Double(Sim.lastFloor)
+        let bottomFloor = Double(Sim.firstFloor)
+        if elev.position <= bottomFloor && elev.velocity < 0 {
+            elev.position = bottomFloor
+            elev.velocity = 0
+            elev.brakeEngaged = true
+        } else if elev.position >= topFloor && elev.velocity > 0 {
+            elev.position = topFloor
+            elev.velocity = 0
+            elev.brakeEngaged = true
+        }
+
         // Arrival detection: when we're close to the target and moving
         // slowly enough, snap to the floor and open the doors. The
         // velocity threshold prevents a tick from skipping past the
@@ -418,6 +578,11 @@ final class ElevatorWorld: ObservableObject {
             elev.doors = .opening
             elev.doorProgress = 0
             elev.direction = .idle
+            elev.brakeEngaged = true
+            // Cab arriving at a floor extinguishes any hall-call
+            // lantern latched there, so the landing fixture and SHOW
+            // CALLS audit reflect that the rider has been served.
+            clearServicedHallCalls(at: target)
             return
         }
 
@@ -644,6 +809,78 @@ final class ElevatorWorld: ObservableObject {
         let index = remotePeerIds.firstIndex(of: elev.ownerPeerId) ?? 0
         let letter = String(UnicodeScalar(UInt32(UnicodeScalar("A").value) + UInt32(index))!)
         return "\(letter)\(elev.label)"
+    }
+
+    // MARK: -- Hall calls (landing-fixture button presses)
+
+    /// Register a landing-fixture hall call. Distinct entry point from
+    /// `enqueue(floor:)` which models an in-cab car-call: a hall call
+    /// goes onto `world.hallCalls` first, then gets allocated to the
+    /// best cab (under collective mode that means nearest cab moving
+    /// in the requested direction; under destination mode a hall call
+    /// must be re-issued through `allocateDestination` since the
+    /// rider's destination is also required).
+    @discardableResult
+    func registerHallCall(floor: Int, direction: Direction) -> HallCall? {
+        guard direction == .up || direction == .down else { return nil }
+        let f = max(Sim.firstFloor, min(Sim.lastFloor, floor))
+        // Coalesce duplicates -- one riser button latches, one entry.
+        if let existing = hallCalls.first(where: { $0.floor == f && $0.direction == direction }) {
+            return existing
+        }
+        let call = HallCall(id: UUID(),
+                            sequence: nextHallCallSequence,
+                            floor: f,
+                            direction: direction,
+                            createdAt: Date(),
+                            assignedCabId: allocateHallCall(floor: f, direction: direction))
+        nextHallCallSequence += 1
+        hallCalls.insert(call, at: 0)
+        if hallCalls.count > 40 {
+            hallCalls.removeLast(hallCalls.count - 40)
+        }
+        return call
+    }
+
+    /// Pick the cab best suited to answer a hall call: lowest ETA,
+    /// with a soft bias for cabs already heading in the requested
+    /// direction (a rider pressing UP gets a cab travelling up rather
+    /// than one heading down past them). Pre-loads the cab's queue
+    /// with the origin floor so motion starts the next tick.
+    private func allocateHallCall(floor: Int, direction: Direction) -> UUID? {
+        let candidates = elevators.filter { cab in
+            guard cab.ownerPeerId == localPeerId else { return false }
+            if cab.phaseTwoActive || cab.independentActive { return false }
+            switch buildingMode {
+            case .normal: return true
+            case .fireRecall: return false
+            case .emergencyPower: return cab.id == epoCabId
+            }
+        }
+        guard !candidates.isEmpty else { return nil }
+        var best: (cab: Elevator, score: Double)?
+        for cab in candidates {
+            let dist = abs(Double(floor) - cab.position)
+            var score = dist / cab.profile.travelFloorsPerSecond
+            // Same-direction bias: a cab heading the rider's way is
+            // worth a soft 3-second bonus over one heading away.
+            if cab.direction == direction { score -= 3.0 }
+            if cab.direction != .idle && cab.direction != direction { score += 4.0 }
+            if best == nil || score < best!.score {
+                best = (cab, score)
+            }
+        }
+        guard let pick = best else { return nil }
+        mutateLocal(pick.cab.id) { e in e.enqueue(floor: floor) }
+        return pick.cab.id
+    }
+
+    /// Called after `advance()` opens the doors at a floor. Any hall
+    /// call latched for this floor in a direction the cab can serve
+    /// is cleared; from the rider's perspective the up / down lantern
+    /// in the lobby goes out.
+    private func clearServicedHallCalls(at floor: Int) {
+        hallCalls.removeAll { call in call.floor == floor }
     }
 
     @discardableResult

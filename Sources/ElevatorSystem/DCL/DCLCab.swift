@@ -4,11 +4,15 @@ import Foundation
 extension DCLEngine {
     func callCmd(_ cmd: Parsed) -> String {
         // CALL DESTINATION /FROM=<n> /TO=<m>     (destination-dispatch)
-        // CALL CAB <label> FLOOR <n>             (collective)
-        // CALL <label> <n>                       (short collective)
+        // CALL HALL /FLOOR=<n> /UP|/DOWN         (landing-fixture call)
+        // CALL CAB <label> FLOOR <n>             (in-cab "car call")
+        // CALL <label> <n>                       (short, defaults to car call)
         var args = cmd.positional
         if args.first?.uppercased() == "DESTINATION" {
             return callDestinationCmd(cmd)
+        }
+        if args.first?.uppercased() == "HALL" {
+            return callHallCmd(cmd)
         }
         if args.first?.uppercased() == "CAB" { args.removeFirst() }
         guard args.count >= 2 else {
@@ -64,6 +68,43 @@ extension DCLEngine {
         }
         return String(format: "%%CALL-S-ALLOC, dispatch #%04d  cab %@  FROM %d -> TO %d  ETA ~%.1fs\n",
                       call.sequence, call.cabLabel, call.from, call.to, call.etaSeconds)
+    }
+
+    /// CALL HALL /FLOOR=<n> /UP    (or /DOWN)
+    /// Models a rider pressing the up / down button at a landing
+    /// fixture. The world allocates it to the best cab; the lantern
+    /// extinguishes when a cab arrives at that floor.
+    func callHallCmd(_ cmd: Parsed) -> String {
+        guard let world else {
+            return "%SYSTEM-F-NOWORLD, elevator world not attached\n"
+        }
+        guard let floorStr = cmd.qualifierValue("FLOOR", min: 3),
+              let floor = Int(floorStr) else {
+            return "%CALL-W-MISSFLOOR, usage: CALL HALL /FLOOR=<n> /UP|/DOWN\n"
+        }
+        guard floor >= Sim.firstFloor && floor <= Sim.lastFloor else {
+            return "%CALL-W-FLOORRNG, floor must be \(Sim.firstFloor)..\(Sim.lastFloor)\n"
+        }
+        let direction: Direction
+        if cmd.hasQualifier("UP", min: 2) {
+            direction = .up
+        } else if cmd.hasQualifier("DOWN", min: 2) {
+            direction = .down
+        } else {
+            return "%CALL-W-MISSDIR, must specify /UP or /DOWN\n"
+        }
+        guard let call = world.registerHallCall(floor: floor, direction: direction) else {
+            return "%CALL-W-REJECT, hall call rejected (invalid direction)\n"
+        }
+        let dirLabel = direction == .up ? "UP" : "DN"
+        if let cabId = call.assignedCabId,
+           let cab = world.elevators.first(where: { $0.id == cabId }) {
+            return String(format: "%%CALL-S-HALL, hall #%04d floor %d %@ -> cab %@\n",
+                          call.sequence, floor, dirLabel,
+                          world.displayLabel(for: cab))
+        }
+        return String(format: "%%CALL-S-HALL, hall #%04d floor %d %@ registered (no cab available)\n",
+                      call.sequence, floor, dirLabel)
     }
 
     func openCmd(_ cmd: Parsed) -> String {

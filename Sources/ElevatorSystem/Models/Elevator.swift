@@ -64,6 +64,13 @@ struct Elevator: Identifiable, Codable, Hashable {
     var ownerPeerId: String
     var automatic: Bool
     var profile: CabProfile
+    /// Absolute cab position in floor-units (1.0 = floor 1, 5.5 = mid-
+    /// way between floors 5 and 6). In a real install this is derived
+    /// from the hoist-motor encoder (typically a 1024-PPR incremental
+    /// or absolute SSI device read by the controller's position card).
+    /// Here it's a continuous Double updated by the dispatcher's scan
+    /// loop -- treat the value as if it had been quantized to ~0.01 fl
+    /// (10 mm in a 1-m floor-pitch building) coming off the encoder.
     var position: Double
     var queue: [Int]
     var doors: DoorState
@@ -84,11 +91,25 @@ struct Elevator: Identifiable, Codable, Hashable {
     /// up. Driven by the trapezoidal velocity profile in
     /// ElevatorWorld.advance() and surfaced by MONITOR DYNAMICS.
     var velocity: Double = 0
+    /// Holding brake state. ASME A17.1 §2.24 requires the brake to
+    /// remain set whenever the car is stopped at a landing and to be
+    /// released only after the motor controller has built up holding
+    /// torque. The dispatcher releases the brake when motion is about
+    /// to start (`doors == .closed && queue.first != nil`) and engages
+    /// it on arrival. Defaults to engaged so a newly spawned cab is in
+    /// the safe state.
+    var brakeEngaged: Bool = true
+    /// Door light-curtain / safety-edge state. While true, the door
+    /// controller is forbidden from closing -- a closing cycle that
+    /// detects an obstruction reverses to .opening and re-arms the
+    /// dwell. Cleared automatically once the obstruction is gone.
+    var doorObstructed: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id, label, ownerPeerId, automatic, profile, position, queue
         case doors, doorProgress, doorDwellRemaining, direction
         case phaseTwoActive, independentActive, velocity
+        case brakeEngaged, doorObstructed
     }
 
     init(id: UUID, label: String, ownerPeerId: String, automatic: Bool,
@@ -96,7 +117,8 @@ struct Elevator: Identifiable, Codable, Hashable {
          doors: DoorState, doorProgress: Double, doorDwellRemaining: Double,
          direction: Direction,
          phaseTwoActive: Bool = false, independentActive: Bool = false,
-         velocity: Double = 0) {
+         velocity: Double = 0,
+         brakeEngaged: Bool = true, doorObstructed: Bool = false) {
         self.id = id
         self.label = label
         self.ownerPeerId = ownerPeerId
@@ -111,6 +133,8 @@ struct Elevator: Identifiable, Codable, Hashable {
         self.phaseTwoActive = phaseTwoActive
         self.independentActive = independentActive
         self.velocity = velocity
+        self.brakeEngaged = brakeEngaged
+        self.doorObstructed = doorObstructed
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +156,8 @@ struct Elevator: Identifiable, Codable, Hashable {
         phaseTwoActive = try c.decodeIfPresent(Bool.self, forKey: .phaseTwoActive) ?? false
         independentActive = try c.decodeIfPresent(Bool.self, forKey: .independentActive) ?? false
         velocity = try c.decodeIfPresent(Double.self, forKey: .velocity) ?? 0
+        brakeEngaged = try c.decodeIfPresent(Bool.self, forKey: .brakeEngaged) ?? true
+        doorObstructed = try c.decodeIfPresent(Bool.self, forKey: .doorObstructed) ?? false
     }
 
     var nearestFloor: Int {

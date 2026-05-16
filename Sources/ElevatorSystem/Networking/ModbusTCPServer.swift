@@ -24,6 +24,8 @@ import Network
 ///     0..7    Cab[0..7]  is locally owned
 ///     8..15   Cab[0..7]  is moving  (direction != idle)
 ///     16..23  Cab[0..7]  doors open (state == open)
+///     24..31  Cab[0..7]  holding brake engaged
+///     32..39  Cab[0..7]  door light-curtain obstructed
 ///
 ///   Holding registers (16-bit, R/W) -- FC 03 read, FC 06 write:
 ///     0..7    Cab[0..7]  Profile      (0 = PAX,    1 = Freight)
@@ -46,6 +48,12 @@ import Network
 ///     107     Active SCADA alarm count
 ///     108     Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
 ///     109     Dispatch mode (0=collective, 1=destination)
+///     110     Active hall-call count
+///
+/// Function codes accepted: FC 01/02/03/04/05/06/0F/10. Anything else
+/// returns exception 0x01 (illegal function). Requests for any unit-id
+/// other than this dispatcher's id (=1) or the broadcast id (=0) get
+/// exception 0x02 (illegal data address).
 @MainActor
 final class ModbusTCPServer: ObservableObject {
     @Published private(set) var port: UInt16?
@@ -66,6 +74,12 @@ final class ModbusTCPServer: ObservableObject {
 
     static let defaultPort: UInt16 = 5020
     static let maxCabs: Int = 8
+    /// Modbus slave address of this dispatcher. Convention on TCP is
+    /// to address a single device as unit-id 1; clients targeting any
+    /// other unit-id (other than the broadcast id 0) get an exception
+    /// 0x02 (illegal data address) response, matching how a real
+    /// gateway behaves when forwarded a request for a missing slave.
+    static let localUnitId: UInt8 = 1
 
     init() {}
 
@@ -229,6 +243,19 @@ final class ModbusClient {
         let fc = frame[7]
         let pdu = frame.subdata(in: 8..<frame.count)
 
+        // Unit-id (slave-address) gating. Modbus reserves 0 for
+        // broadcast (we accept it but don't respond per spec... we do
+        // here so a generic client doesn't time out); any non-local
+        // unit-id gets exception 0x02 (illegal data address). A real
+        // gateway behaves the same way when it doesn't have a slave
+        // configured at that address.
+        if unitId != 0 && unitId != ModbusTCPServer.localUnitId {
+            sendResponse(txnId: txnId,
+                         unitId: unitId,
+                         pdu: Data([fc | 0x80, 0x02]))
+            return
+        }
+
         let response: Data
         switch fc {
         case 0x01: response = handleReadCoils(pdu)
@@ -237,6 +264,8 @@ final class ModbusClient {
         case 0x04: response = handleReadInputRegisters(pdu)
         case 0x05: response = handleWriteSingleCoil(pdu)
         case 0x06: response = handleWriteSingleRegister(pdu)
+        case 0x0F: response = handleWriteMultipleCoils(pdu)
+        case 0x10: response = handleWriteMultipleRegisters(pdu)
         default:
             response = Data([fc | 0x80, 0x01])      // illegal function
         }
@@ -346,6 +375,58 @@ final class ModbusClient {
         return pdu                                  // echo
     }
 
+    /// FC 0x0F -- Write Multiple Coils. Lets a PLC stage several
+    /// commands (e.g. close-all-doors across the building) in one
+    /// transaction. Response echoes the starting address and the coil
+    /// count, per spec §6.11.
+    private func handleWriteMultipleCoils(_ pdu: Data) -> Data {
+        guard pdu.count >= 5 else { return Data([0x8F, 0x03]) }
+        let start = u16(pdu, 0)
+        let count = u16(pdu, 2)
+        let byteCount = Int(pdu[pdu.startIndex + 4])
+        guard count >= 1, count <= 1968,
+              byteCount == (Int(count) + 7) / 8,
+              pdu.count >= 5 + byteCount
+        else { return Data([0x8F, 0x03]) }
+        for i in 0..<Int(count) {
+            let byte = pdu[pdu.startIndex + 5 + i / 8]
+            let bit = (byte >> UInt8(i % 8)) & 0x01
+            writeCoil(at: start &+ UInt16(i), on: bit == 1)
+        }
+        var out = Data([0x0F])
+        out.append(UInt8(start >> 8))
+        out.append(UInt8(start & 0xFF))
+        out.append(UInt8(count >> 8))
+        out.append(UInt8(count & 0xFF))
+        return out
+    }
+
+    /// FC 0x10 -- Write Multiple Registers. The bread-and-butter call
+    /// for a real PLC HMI pushing setpoints: load N consecutive
+    /// holding registers in a single request (e.g. dispatch every
+    /// cab's target floor at once). Response echoes the starting
+    /// address and register count, per spec §6.12.
+    private func handleWriteMultipleRegisters(_ pdu: Data) -> Data {
+        guard pdu.count >= 5 else { return Data([0x90, 0x03]) }
+        let start = u16(pdu, 0)
+        let count = u16(pdu, 2)
+        let byteCount = Int(pdu[pdu.startIndex + 4])
+        guard count >= 1, count <= 123,
+              byteCount == Int(count) * 2,
+              pdu.count >= 5 + byteCount
+        else { return Data([0x90, 0x03]) }
+        for i in 0..<Int(count) {
+            let value = u16(pdu, 5 + i * 2)
+            writeHoldingRegister(at: start &+ UInt16(i), value: value)
+        }
+        var out = Data([0x10])
+        out.append(UInt8(start >> 8))
+        out.append(UInt8(start & 0xFF))
+        out.append(UInt8(count >> 8))
+        out.append(UInt8(count & 0xFF))
+        return out
+    }
+
     // MARK: -- Register accessors
 
     private func cab(at index: Int) -> Elevator? {
@@ -394,6 +475,8 @@ final class ModbusClient {
         case 0: return world?.canControl(c) ?? false
         case 1: return c.direction != .idle
         case 2: return c.doors == .open
+        case 3: return c.brakeEngaged
+        case 4: return c.doorObstructed
         default: return false
         }
     }
@@ -490,6 +573,7 @@ final class ModbusClient {
             // whole alarm log over Modbus.
             guard let s = world?.highestActiveSeverity else { return 0 }
             return UInt16(s.rawValue + 1)
+        case 110: return UInt16(min(0xFFFF, world?.hallCalls.count ?? 0))
         default:  return 0
         }
     }

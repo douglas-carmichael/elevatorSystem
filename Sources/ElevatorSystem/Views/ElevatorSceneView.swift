@@ -8,13 +8,17 @@ struct ElevatorSceneWindow: View {
     @EnvironmentObject var language: AppLanguage
     @State private var showingRemote = false
     @State private var selectedRemotePeerId: String? = nil
+    @State private var recenterTrigger: Int = 0
+    @State private var isolatedCabId: UUID? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             ElevatorSceneRepresentable(
                 world: world,
                 showingRemote: showingRemote,
-                selectedRemotePeerId: selectedRemotePeerId
+                selectedRemotePeerId: selectedRemotePeerId,
+                recenterTrigger: recenterTrigger,
+                isolatedCabId: isolatedCabId
             )
             .ignoresSafeArea()
             KeyboardHost(onKey: handleKey)
@@ -22,7 +26,13 @@ struct ElevatorSceneWindow: View {
                 .frame(width: 0, height: 0)
             HudOverlay(
                 showingRemote: $showingRemote,
-                selectedRemotePeerId: $selectedRemotePeerId
+                selectedRemotePeerId: $selectedRemotePeerId,
+                isolatedCabId: $isolatedCabId,
+                onRecenter: {
+                    isolatedCabId = nil
+                    recenterTrigger &+= 1
+                },
+                onIsolate: { advanceIsolation() }
             )
             .padding(16)
         }
@@ -38,6 +48,43 @@ struct ElevatorSceneWindow: View {
                     selectedRemotePeerId = peers.first
                 }
             }
+            if let id = isolatedCabId,
+               !world.elevators.contains(where: { $0.id == id }) {
+                isolatedCabId = nil
+            }
+        }
+    }
+
+    /// Picks the next cab to isolate. First press chooses an alarmed cab if
+    /// any is active (so the operator drill-down lands on the cab that
+    /// needs attention); subsequent presses cycle through the visible cabs.
+    private func advanceIsolation() {
+        let pool: [Elevator]
+        if showingRemote {
+            pool = world.sortedElevators.filter {
+                $0.ownerPeerId != world.localPeerId
+            }
+        } else {
+            pool = world.sortedElevators.filter {
+                $0.ownerPeerId == world.localPeerId
+            }
+        }
+        guard !pool.isEmpty else { isolatedCabId = nil; return }
+        if isolatedCabId == nil {
+            for cab in pool {
+                let cabSource = "CAB \(world.displayLabel(for: cab))"
+                if world.activeAlarms.contains(where: { $0.source == cabSource }) {
+                    isolatedCabId = cab.id
+                    return
+                }
+            }
+            isolatedCabId = pool[0].id
+            return
+        }
+        if let i = pool.firstIndex(where: { $0.id == isolatedCabId }) {
+            isolatedCabId = pool[(i + 1) % pool.count].id
+        } else {
+            isolatedCabId = pool[0].id
         }
     }
 
@@ -50,6 +97,7 @@ struct ElevatorSceneWindow: View {
             language.cycle()
             return nil
         case "v":
+            isolatedCabId = nil
             if showingRemote {
                 showingRemote = false
                 selectedRemotePeerId = nil
@@ -59,6 +107,13 @@ struct ElevatorSceneWindow: View {
                 showingRemote = true
                 selectedRemotePeerId = peers.first
             }
+            return nil
+        case "r":
+            isolatedCabId = nil
+            recenterTrigger &+= 1
+            return nil
+        case "i":
+            advanceIsolation()
             return nil
         case "q":
             NSApp.terminate(nil)
@@ -74,6 +129,9 @@ private struct HudOverlay: View {
     @EnvironmentObject var language: AppLanguage
     @Binding var showingRemote: Bool
     @Binding var selectedRemotePeerId: String?
+    @Binding var isolatedCabId: UUID?
+    let onRecenter: () -> Void
+    let onIsolate: () -> Void
 
     private var filteredCount: Int {
         if showingRemote {
@@ -112,12 +170,14 @@ private struct HudOverlay: View {
             HStack(spacing: 12) {
                 RetroButton(language.t("elev.localtag"),
                             highlighted: !showingRemote) {
+                    isolatedCabId = nil
                     showingRemote = false
                     selectedRemotePeerId = nil
                 }
                 RetroButton(language.t("elev.remotetag"),
                             enabled: hasRemoteCabs,
                             highlighted: showingRemote) {
+                    isolatedCabId = nil
                     showingRemote = true
                     if selectedRemotePeerId == nil ||
                        !remotePeerIds.contains(selectedRemotePeerId ?? "") {
@@ -143,6 +203,24 @@ private struct HudOverlay: View {
             }
 
             HStack(spacing: 12) {
+                RetroButton(language.t("scene.recenter")) {
+                    onRecenter()
+                }
+                RetroButton(language.t("scene.isolate")) {
+                    onIsolate()
+                }
+            }
+            .padding(.top, 4)
+
+            if let id = isolatedCabId,
+               let cab = world.elevators.first(where: { $0.id == id }) {
+                Text("\(language.t("scene.isolated.prefix")) \(world.displayLabel(for: cab))")
+                    .font(RetroTheme.monoSm)
+                    .foregroundColor(RetroTheme.cyan)
+                    .padding(.top, 2)
+            }
+
+            HStack(spacing: 12) {
                 ForEach(Lang.allCases) { lang in
                     RetroButton(lang.code, highlighted: language.current == lang) {
                         language.current = lang
@@ -161,6 +239,8 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
     let world: ElevatorWorld
     let showingRemote: Bool
     let selectedRemotePeerId: String?
+    let recenterTrigger: Int
+    let isolatedCabId: UUID?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(world: world, showingRemote: showingRemote,
@@ -176,13 +256,19 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
         view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 60
         view.isPlaying = true
+        context.coordinator.attach(view: view)
         return view
     }
 
     func updateNSView(_ nsView: SCNView, context: Context) {
         context.coordinator.showingRemote = showingRemote
         context.coordinator.selectedRemotePeerId = selectedRemotePeerId
+        context.coordinator.isolatedCabId = isolatedCabId
         context.coordinator.sync()
+        if recenterTrigger != context.coordinator.lastRecenterTrigger {
+            context.coordinator.lastRecenterTrigger = recenterTrigger
+            context.coordinator.recenterCamera()
+        }
     }
 
     @MainActor
@@ -191,14 +277,71 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
         let world: ElevatorWorld
         var showingRemote: Bool
         var selectedRemotePeerId: String?
+        var lastRecenterTrigger: Int = 0
+        var isolatedCabId: UUID? = nil
+        private var lastAppliedIsolation: UUID? = nil
+        private weak var sceneView: SCNView?
         private var cabNodes: [UUID: CabNodes] = [:]
         private var cameraNode: SCNNode?
+        private var defaultCameraPosition: SCNVector3 = SCNVector3Zero
+        private var defaultCameraEuler: SCNVector3 = SCNVector3Zero
         private var cancellable: AnyCancellable?
         private let shaftSpacing: Float = 3.2
         private let floorHeight: Float = 1.6
         private let cabWidth: Float = 1.7
         private let cabHeight: Float = 1.3
         private let cabDepth: Float = 1.3
+
+        func attach(view: SCNView) {
+            self.sceneView = view
+            if let cam = cameraNode {
+                view.pointOfView = cam
+            }
+        }
+
+        func recenterCamera() {
+            guard let cam = cameraNode else { return }
+            cam.position = defaultCameraPosition
+            cam.eulerAngles = defaultCameraEuler
+            // Recompute z based on current cab count, the way sync() does.
+            let visible = filteredElevators
+            let count = max(1, visible.count)
+            let totalSpan = Float(count - 1) * shaftSpacing + shaftSpacing
+            let halfAngle = Float(22.5 * .pi / 180)
+            let neededZ = max(14, Double(totalSpan / 2 / tan(halfAngle)))
+            cam.position.z = neededZ
+            // allowsCameraControl swaps in its own pointOfView once the user
+            // orbits; reassigning forces the SCNView back to our camera.
+            sceneView?.pointOfView = cam
+            // Recenter implies leaving the isolate drill-down; restore
+            // visibility on all shafts so the overview comes back.
+            for (_, n) in cabNodes { n.shaftRoot.isHidden = false }
+            lastAppliedIsolation = nil
+        }
+
+        // SCADA-style operator drill-down: hide every shaft but the
+        // selected cab's, then frame the camera on that shaft so the
+        // cab and door state can be inspected without the other lanes
+        // crowding the view. Re-applied only when the isolated id
+        // changes so the user can still orbit within an isolated view.
+        private func applyIsolation() {
+            if let id = isolatedCabId, let nodes = cabNodes[id] {
+                for (cid, n) in cabNodes {
+                    n.shaftRoot.isHidden = (cid != id)
+                }
+                if let cam = cameraNode {
+                    let shaftX = nodes.shaftRoot.position.x
+                    cam.eulerAngles = defaultCameraEuler
+                    cam.position = SCNVector3(
+                        Double(shaftX),
+                        Double(floorHeight) * Double(Sim.floorCount) * 0.55,
+                        11.0)
+                    sceneView?.pointOfView = cam
+                }
+            } else {
+                for (_, n) in cabNodes { n.shaftRoot.isHidden = false }
+            }
+        }
 
         struct CabNodes {
             let shaftRoot: SCNNode
@@ -252,11 +395,18 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
                 updateCab(nodes: nodes, elevator: elev)
             }
 
-            let count = max(1, visible.count)
-            let totalSpan = Float(count - 1) * shaftSpacing + shaftSpacing
-            let halfAngle = Float(22.5 * .pi / 180)
-            let neededZ = max(14, Double(totalSpan / 2 / tan(halfAngle)))
-            cameraNode?.position.z = neededZ
+            if isolatedCabId != lastAppliedIsolation {
+                applyIsolation()
+                lastAppliedIsolation = isolatedCabId
+            }
+
+            if isolatedCabId == nil {
+                let count = max(1, visible.count)
+                let totalSpan = Float(count - 1) * shaftSpacing + shaftSpacing
+                let halfAngle = Float(22.5 * .pi / 180)
+                let neededZ = max(14, Double(totalSpan / 2 / tan(halfAngle)))
+                cameraNode?.position.z = neededZ
+            }
         }
 
         private func buildStaticScene() {
@@ -274,6 +424,8 @@ struct ElevatorSceneRepresentable: NSViewRepresentable {
             camNode.eulerAngles = SCNVector3(-0.18, 0, 0)
             scene.rootNode.addChildNode(camNode)
             self.cameraNode = camNode
+            self.defaultCameraPosition = camNode.position
+            self.defaultCameraEuler = camNode.eulerAngles
 
             let ambient = SCNNode()
             ambient.light = SCNLight()
