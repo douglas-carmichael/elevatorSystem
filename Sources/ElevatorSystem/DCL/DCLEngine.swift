@@ -104,11 +104,11 @@ final class DCLEngine: ObservableObject {
     // MOUNT / DISMOUNT state -- volume label per mounted device.
     var mountedVolumes: [String: String] = [:]
 
-    // MAIL state -- in-memory mailbox. A real install routes through
-    // VMSMAIL_PROFILE.DAT plus per-user .MAI files; we hold the inbox in
-    // RAM and seed it with a welcome message so MAIL READ does something
-    // meaningful on first launch.
-    struct MailMessage {
+    // MAIL state -- persisted to MAILBOX.JSON in the script-store
+    // directory so the inbox (including SUBMIT-job completion notices)
+    // survives a relaunch. Real VMS stores its MAIL inbox in
+    // SYS$LOGIN:MAIL.MAI; we use a JSON sidecar for the same purpose.
+    struct MailMessage: Codable {
         let id: Int
         let from: String
         let subject: String
@@ -118,6 +118,7 @@ final class DCLEngine: ObservableObject {
     }
     var mailbox: [MailMessage] = []
     var nextMailId: Int = 1
+    static let mailboxFileName = "MAILBOX.JSON"
 
     // INSTALL state -- images that STARTUP.COM's INSTALL ADD has made
     // known to the system. Seeded with the canonical elevator-control
@@ -183,7 +184,10 @@ final class DCLEngine: ObservableObject {
         self.pid = String(format: "%08X", Int.random(in: 0x0000_0400...0x0000_04FF))
         self.defaultDirectory = "[\(self.username)]"
         self.nodeName = Self.makeNodeName()
-        seedInitialMail()
+        if !loadMailbox() {
+            seedInitialMail()
+            persistMailbox()
+        }
     }
 
     private func seedInitialMail() {
@@ -204,6 +208,27 @@ final class DCLEngine: ObservableObject {
             received: now.addingTimeInterval(-180),
             read: false))
         nextMailId += 1
+    }
+
+    @discardableResult
+    private func loadMailbox() -> Bool {
+        guard let raw = scriptStore.read(name: Self.mailboxFileName),
+              let data = raw.data(using: .utf8) else { return false }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let messages = try? decoder.decode([MailMessage].self, from: data) else { return false }
+        mailbox = messages
+        nextMailId = (messages.map(\.id).max() ?? 0) + 1
+        return true
+    }
+
+    func persistMailbox() {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(mailbox),
+              let str = String(data: data, encoding: .utf8) else { return }
+        scriptStore.write(name: Self.mailboxFileName, body: str)
     }
 
     /// Build an OpenVMS-plausible 6-character DECnet-style node name

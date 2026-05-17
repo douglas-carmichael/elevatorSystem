@@ -18,7 +18,8 @@ extension DCLEngine {
         s += "  PHONE         PRINT         PRODUCT       PURGE         RECALL\n"
         s += "  RENAME        REPLY         REQUEST       RUN           SCRIPTING\n"
         s += "  SEARCH        SET           SHOW          SPAWN         STOP\n"
-        s += "  SUBMIT        TUTORIAL      TYPE          WAIT          WRITE\n\n"
+        s += "  STORAGE       SUBMIT        TUTORIAL      TYPE          WAIT\n"
+        s += "  WRITE\n\n"
         s += "Privileged verbs (refused for the operator account):  DEPOSIT, INITIALIZE, PATCH\n\n"
         s += "Type HELP <topic> for details. Commands may be abbreviated\n"
         s += "(e.g. SH PROC == SHOW PROCESS, DEAL == DEALLOCATE).\n"
@@ -181,7 +182,14 @@ extension DCLEngine {
         case matches(t, "PRINT"):
             return "\n  PRINT file\n      Queue a file to SYS$PRINT.\n"
         case matches(t, "SUBMIT", min: 3):
-            return "\n  SUBMIT file.COM\n      Submit a command file as a batch job to SYS$BATCH.\n"
+            var s = "\n  SUBMIT file.COM\n"
+            s += "      Spool a command procedure to SYS$BATCH. The prompt\n"
+            s += "      returns immediately; the job runs detached. When\n"
+            s += "      it finishes, OPCOM drops a notification on this\n"
+            s += "      terminal, MAIL delivers the captured output, and\n"
+            s += "      a .LOG file is written next to the .COM (see\n"
+            s += "      HELP STORAGE for the host path).\n"
+            return s
         case matches(t, "CREATE", min: 3):
             var s = "\n  CREATE filename\n"
             s += "      Create a new sequential file. .COM files land in the on-disk\n"
@@ -266,11 +274,35 @@ extension DCLEngine {
             s += "\n"
             s += "  A sample HELLO.COM and DEMO.COM are seeded into the script\n"
             s += "  store on first launch -- try `TYPE HELLO.COM` and `@HELLO`.\n"
+            s += "  HELP STORAGE prints the host directory the .COM files live in.\n"
             s += "  For a guided walkthrough, type:   HELP TUTORIAL\n"
             return s
 
         case matches(t, "TUTORIAL", min: 4):
             return scriptingTutorial()
+
+        case matches(t, "STORAGE", min: 4):
+            var s = "\n  On-disk storage\n  -- ---- -------\n"
+            s += "  The simulated ELEVATOR$ROOT volume is backed by a real\n"
+            s += "  directory on the host Mac:\n\n"
+            s += "    \(scriptStore.rootPath)\n\n"
+            s += "  Files in that directory round-trip between the host and\n"
+            s += "  the shell. Editing a .COM file in your text editor of\n"
+            s += "  choice and then `@FILE` works the same as `EDIT FILE`\n"
+            s += "  followed by `@FILE`.\n\n"
+            s += "  File types kept there:\n"
+            s += "    *.COM         Command procedures (CREATE / EDIT /\n"
+            s += "                  TYPE / @file / DELETE / COPY / RENAME\n"
+            s += "                  / APPEND).\n"
+            s += "    *.LOG         Batch-job logs written automatically\n"
+            s += "                  by SUBMIT when a procedure finishes.\n"
+            s += "    MAILBOX.JSON  Persistent MAIL inbox. The file\n"
+            s += "                  re-seeds with the welcome messages if\n"
+            s += "                  you delete it.\n\n"
+            s += "  STARTUP.COM, HELLO.COM and DEMO.COM are seeded into\n"
+            s += "  the directory on first launch. The INSTALL known-image\n"
+            s += "  table lives only in RAM and re-seeds on every start.\n"
+            return s
 
         default:
             return "\n  Sorry, no further help is available for \(t).\n"

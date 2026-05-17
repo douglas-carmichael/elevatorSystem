@@ -188,6 +188,7 @@ extension DCLEngine {
                 idx = i
             }
             mailbox[idx].read = true
+            persistMailbox()
             let m = mailbox[idx]
             var s = banner + "MAIL>READ\n"
             s += "From:    \(m.from)\n"
@@ -206,6 +207,7 @@ extension DCLEngine {
                 return banner + "%MAIL-E-NOMSG, no message with id \(n)\nMAIL>EXIT\n"
             }
             mailbox.remove(at: i)
+            persistMailbox()
             return banner + "MAIL>DELETE \(n)\n%MAIL-I-DELETED, message \(n) deleted\nMAIL>EXIT\n"
 
         case "SEND":
@@ -239,6 +241,7 @@ extension DCLEngine {
                                        received: Date(),
                                        read: false))
             nextMailId += 1
+            persistMailbox()
             return banner + "MAIL>SEND \(addr)\n%MAIL-S-SENT, message queued for \(addr.uppercased())\nMAIL>EXIT\n"
 
         default:
@@ -693,6 +696,7 @@ extension DCLEngine {
         // (the in-shell stand-in for the .LOG), and drop an OPCOM line on
         // the terminal when the job finishes.
         let job = Int.random(in: 1000...9999)
+        let logName = logFileName(for: normalized)
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             let started = Date()
@@ -703,17 +707,31 @@ extension DCLEngine {
             log += "Submitted \(self.stamp(started))   Completed \(self.stamp(finished))   Elapsed \(elapsed)\n"
             log += "\n"
             log += body.isEmpty ? "(no output)\n" : body
+            // Write the .LOG to the same on-disk store the .COM lives in;
+            // TYPE / DIRECTORY can see it afterwards, and an operator can
+            // open it in Finder via the path HELP STORAGE prints.
+            self.scriptStore.write(name: logName, body: log)
             self.mailbox.append(MailMessage(
                 id: self.nextMailId,
                 from: "BATCH",
                 subject: "Job \(job) (\(normalized)) completed",
-                body: log,
+                body: "Log file: \(self.defaultDevice)\(self.defaultDirectory)\(logName);1\n\n\(log)",
                 received: finished,
                 read: false))
             self.nextMailId += 1
-            self.out("\r\n%OPCOM, \(self.stamp(finished)), batch job \(job) (\(normalized)) completed; see MAIL\n")
+            self.persistMailbox()
+            self.out("\r\n%OPCOM, \(self.stamp(finished)), batch job \(job) (\(normalized)) completed; log \(logName)\n")
         }
         return "Job \(file) (queue SYS$BATCH, entry \(job)) pending\n"
+    }
+
+    private func logFileName(for comName: String) -> String {
+        // Strip the .COM (or anything after the last dot) and tack on
+        // .LOG, mirroring real VMS where SUBMIT FOO.COM produces FOO.LOG.
+        if let dot = comName.lastIndex(of: ".") {
+            return String(comName[..<dot]) + ".LOG"
+        }
+        return comName + ".LOG"
     }
 
     /// CREATE -- in this shell, real .COM files get written to the disk

@@ -15,6 +15,11 @@ final class DCLScriptStore {
 
     private let root: URL
 
+    /// Absolute path of the on-disk store, surfaced through HELP STORAGE
+    /// and the MAIL/.LOG output of SUBMIT so an operator can locate the
+    /// real files outside the shell (Finder, shell, backups).
+    var rootPath: String { root.path }
+
     init() {
         let fm = FileManager.default
         let support = (try? fm.url(for: .applicationSupportDirectory,
