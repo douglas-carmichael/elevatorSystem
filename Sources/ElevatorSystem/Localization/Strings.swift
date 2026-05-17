@@ -307,7 +307,7 @@ enum Strings {
 
         // Test names.
         add("diag.test.brake",      "BRAKE HOLD-FORCE TEST",               "TEST DE FORCE DE FREINAGE")
-        add("diag.test.door",       "DOOR CYCLE & OBSTRUCTION TEST",       "TEST DE CYCLE DE PORTES & D'OBSTRUCTION")
+        add("diag.test.door",       "DOOR CYCLE & OBSTRUCTION TEST",       "TEST CYCLE PORTES + CAPTEUR D'OBSTRUCTION")
         add("diag.test.weight",     "LOAD-CELL CALIBRATION",               "ÉTALONNAGE DES CAPTEURS DE CHARGE")
         add("diag.test.lamp",       "HALL-CALL LAMP TEST",                 "TEST DES LAMPES D'APPEL PALIER")
 
