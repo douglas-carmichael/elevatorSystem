@@ -352,22 +352,33 @@ private struct SCADAAlarmPanel: View {
         let point: String
         let severity: AlarmSeverity
         let messageKey: String
+        let weight: Int
     }
 
+    // Weighted pool: advisory + minor entries dominate so the SCADA log
+    // reads like a routine day; major/critical picks are rare so the
+    // student spends most of their time working ack/clear muscle memory
+    // and only occasionally has to think about a service-affecting page.
+    // Nothing auto-resolves -- the operator (the student) drives every
+    // raise -> ACK -> CLEAR cycle, which is the whole point of the panel.
     private static let injectorPool: [InjectorPick] = [
-        .init(source: "SYS", point: "CONTROLLER",    severity: .major,    messageKey: "alarm.msg.controller"),
-        .init(source: "CAB", point: "DOOR_ZONE",     severity: .minor,    messageKey: "alarm.msg.doorzone"),
-        .init(source: "CAB", point: "BRAKE",         severity: .critical, messageKey: "alarm.msg.brake"),
-        .init(source: "NET", point: "PEER_LINK",     severity: .major,    messageKey: "alarm.msg.peerlink"),
-        .init(source: "PWR", point: "MAINS",         severity: .critical, messageKey: "alarm.msg.mains"),
-        .init(source: "CAB", point: "DOOR_HELD",     severity: .minor,    messageKey: "alarm.msg.doorheld"),
-        .init(source: "CAB", point: "OVERSPEED",     severity: .major,    messageKey: "alarm.msg.overspeed"),
-        .init(source: "CAB", point: "LANDING_ZONE",  severity: .minor,    messageKey: "alarm.msg.landingzone"),
-        .init(source: "SYS", point: "DISPATCH",      severity: .advisory, messageKey: "alarm.msg.dispatchstall"),
+        .init(source: "SYS", point: "CONTROLLER",    severity: .major,    messageKey: "alarm.msg.controller",    weight: 1),
+        .init(source: "CAB", point: "DOOR_ZONE",     severity: .minor,    messageKey: "alarm.msg.doorzone",      weight: 4),
+        .init(source: "CAB", point: "BRAKE",         severity: .critical, messageKey: "alarm.msg.brake",         weight: 1),
+        .init(source: "NET", point: "PEER_LINK",     severity: .major,    messageKey: "alarm.msg.peerlink",      weight: 2),
+        .init(source: "PWR", point: "MAINS",         severity: .critical, messageKey: "alarm.msg.mains",         weight: 1),
+        .init(source: "CAB", point: "DOOR_HELD",     severity: .minor,    messageKey: "alarm.msg.doorheld",      weight: 5),
+        .init(source: "CAB", point: "OVERSPEED",     severity: .major,    messageKey: "alarm.msg.overspeed",     weight: 1),
+        .init(source: "CAB", point: "LANDING_ZONE",  severity: .minor,    messageKey: "alarm.msg.landingzone",   weight: 4),
+        .init(source: "SYS", point: "DISPATCH",      severity: .advisory, messageKey: "alarm.msg.dispatchstall", weight: 6),
     ]
 
+    private static let weightedPool: [InjectorPick] = injectorPool.flatMap {
+        Array(repeating: $0, count: max(1, $0.weight))
+    }
+
     private func injectRandomAlarm() {
-        guard let pick = Self.injectorPool.randomElement() else { return }
+        guard let pick = Self.weightedPool.randomElement() else { return }
         let resolvedSource: String
         if pick.source == "CAB" {
             let local = world.elevators.filter { $0.ownerPeerId == world.localPeerId }
