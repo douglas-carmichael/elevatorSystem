@@ -685,19 +685,35 @@ extension DCLEngine {
         guard scriptStore.read(name: normalized) != nil else {
             return "%SUBMIT-E-OPENIN, error opening \(file) as input\n-RMS-E-FNF, file not found\n"
         }
-        // Real VMS SUBMIT spools the procedure to SYS$BATCH and runs it
-        // detached, writing output to a .LOG. The simulator keeps the
-        // accepted-job line so the transcript still looks like SUBMIT
-        // but executes synchronously so the student sees the effects in
-        // the same session.
+        // Real VMS SUBMIT spools the procedure to SYS$BATCH, returns the
+        // prompt immediately, runs the procedure detached (writing output
+        // to a .LOG), and notifies the submitter through OPCOM + MAIL on
+        // completion. The simulator follows the same flow: kick off a
+        // MainActor task, capture the script's output into a MAIL message
+        // (the in-shell stand-in for the .LOG), and drop an OPCOM line on
+        // the terminal when the job finishes.
         let job = Int.random(in: 1000...9999)
-        var output = "Job \(file) (queue SYS$BATCH, entry \(job)) pending\n"
-        let body = await execComFile(file)
-        if !body.isEmpty {
-            output += body
-            if !body.hasSuffix("\n") { output += "\n" }
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            let started = Date()
+            let body = await self.execComFile(file)
+            let finished = Date()
+            let elapsed = self.uptimeString(from: started, to: finished)
+            var log = "Job \(job) (\(normalized)) on queue SYS$BATCH\n"
+            log += "Submitted \(self.stamp(started))   Completed \(self.stamp(finished))   Elapsed \(elapsed)\n"
+            log += "\n"
+            log += body.isEmpty ? "(no output)\n" : body
+            self.mailbox.append(MailMessage(
+                id: self.nextMailId,
+                from: "BATCH",
+                subject: "Job \(job) (\(normalized)) completed",
+                body: log,
+                received: finished,
+                read: false))
+            self.nextMailId += 1
+            self.out("\r\n%OPCOM, \(self.stamp(finished)), batch job \(job) (\(normalized)) completed; see MAIL\n")
         }
-        return output
+        return "Job \(file) (queue SYS$BATCH, entry \(job)) pending\n"
     }
 
     /// CREATE -- in this shell, real .COM files get written to the disk
