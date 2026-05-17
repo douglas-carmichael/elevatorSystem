@@ -13,6 +13,24 @@ struct DynamicsMonitorWindow: View {
     @State private var lastVelocity: [UUID: Double] = [:]
     @State private var lastSample: Date = Date()
     @State private var lastUpdate: Date = Date()
+    @State private var velocityHistory: [UUID: [Double]] = [:]
+
+    // 60-second rolling window at 500 ms sample rate -> 120 slots; the
+    // trace anchors the newest sample to the right edge so it reads
+    // like a commissioning-tool scope rather than a left-to-right
+    // history that wanders off the screen as the buffer fills.
+    private static let traceCapacity: Int = 120
+
+    // Window-local fonts: the global RetroTheme.mono/monoSm are tuned
+    // for dense panels (control panel, alarm table); this window is
+    // viewed from further back during a demo, so the table and labels
+    // get bumped up a tier without affecting the rest of the app.
+    private static let bodyFont = Font.custom(RetroTheme.retroFontName,
+                                              size: 19, relativeTo: .body)
+    private static let smallFont = Font.custom(RetroTheme.retroFontName,
+                                               size: 16, relativeTo: .footnote)
+    private static let titleFont = Font.custom(RetroTheme.retroFontName,
+                                               size: 26, relativeTo: .title3)
 
     var body: some View {
         ZStack {
@@ -25,7 +43,7 @@ struct DynamicsMonitorWindow: View {
                     .frame(height: 1)
                 if rows.isEmpty {
                     Text(language.t("dynamics.empty"))
-                        .font(RetroTheme.mono)
+                        .font(Self.bodyFont)
                         .foregroundColor(RetroTheme.greenDim)
                 } else {
                     ForEach(rows) { row in
@@ -33,13 +51,16 @@ struct DynamicsMonitorWindow: View {
                     }
                 }
                 Spacer().frame(height: 8)
+                velocityTrace
+                Spacer().frame(height: 8)
                 profileFooter
+                stateGloss
                 Spacer()
                 statusBar
             }
             .padding(20)
         }
-        .frame(minWidth: 720, minHeight: 420)
+        .frame(minWidth: 760, minHeight: 700)
         .environment(\.colorScheme, .dark)
         .onAppear { sample() }
         .task {
@@ -84,20 +105,27 @@ struct DynamicsMonitorWindow: View {
                                     cabs.map { ($0.id, $0.velocity) })
         lastSample = now
         lastUpdate = now
+
+        for cab in cabs {
+            var buf = velocityHistory[cab.id, default: []]
+            buf.append(cab.velocity)
+            if buf.count > Self.traceCapacity {
+                buf.removeFirst(buf.count - Self.traceCapacity)
+            }
+            velocityHistory[cab.id] = buf
+        }
+        let currentIds = Set(cabs.map(\.id))
+        velocityHistory = velocityHistory.filter { currentIds.contains($0.key) }
     }
 
     // MARK: - Subviews
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(language.t("dynamics.title"))
-                .font(RetroTheme.monoLg)
-                .foregroundColor(RetroTheme.amber)
-                .retroGlow()
-            Text(language.t("dynamics.subtitle"))
-                .font(RetroTheme.monoSm)
-                .foregroundColor(RetroTheme.amberDim)
-        }
+        Text(language.t("dynamics.title"))
+            .font(Self.titleFont)
+            .foregroundColor(RetroTheme.amber)
+            .retroGlow()
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var tableHeader: some View {
@@ -113,7 +141,7 @@ struct DynamicsMonitorWindow: View {
 
     private func headerCell(_ text: String, width: CGFloat?) -> some View {
         Text(text)
-            .font(RetroTheme.mono)
+            .font(Self.bodyFont)
             .foregroundColor(RetroTheme.amberDim)
             .frame(width: width, alignment: .leading)
     }
@@ -136,9 +164,124 @@ struct DynamicsMonitorWindow: View {
 
     private func cell(_ text: String, width: CGFloat?, color: Color) -> some View {
         Text(text)
-            .font(RetroTheme.mono)
+            .font(Self.bodyFont)
             .foregroundColor(color)
             .frame(width: width, alignment: .leading)
+    }
+
+    private var velocityTrace: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 14) {
+                Text(language.t("dynamics.trace.title"))
+                    .font(Self.smallFont)
+                    .foregroundColor(RetroTheme.amberDim)
+                ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                    HStack(spacing: 4) {
+                        Rectangle()
+                            .fill(traceColor(for: idx))
+                            .frame(width: 8, height: 8)
+                        Text(row.label)
+                            .font(Self.smallFont)
+                            .foregroundColor(RetroTheme.amberDim)
+                    }
+                }
+                Spacer()
+                Text(language.t("dynamics.trace.axis"))
+                    .font(Self.smallFont)
+                    .foregroundColor(RetroTheme.amberDim)
+            }
+            Canvas { context, size in
+                drawTrace(context: context, size: size)
+            }
+            .frame(height: 140)
+            .background(RetroTheme.bg)
+            .overlay(
+                Rectangle()
+                    .stroke(RetroTheme.amberDim, lineWidth: 1)
+            )
+            if velocityHistory.values.allSatisfy({ $0.count < 2 }) {
+                Text(language.t("dynamics.trace.empty"))
+                    .font(Self.smallFont)
+                    .foregroundColor(RetroTheme.greenDim)
+            }
+        }
+    }
+
+    private static let tracePalette: [Color] = [
+        RetroTheme.green,
+        RetroTheme.cyan,
+        RetroTheme.amberBright,
+        .red,
+        RetroTheme.greenDim,
+    ]
+
+    private func traceColor(for index: Int) -> Color {
+        Self.tracePalette[index % Self.tracePalette.count]
+    }
+
+    // Scope-style velocity-vs-time plot. Y-axis is symmetric around
+    // zero with the trapezoidal-profile speed ceiling marked as a
+    // dashed limit line; X-axis is `traceCapacity` slots, newest sample
+    // anchored to the right edge.
+    private func drawTrace(context: GraphicsContext, size: CGSize) {
+        let maxSpeed = max(Sim.paxSpeed, Sim.freightSpeed) * 1.15
+        let midY = size.height / 2
+        let yScale = midY / CGFloat(maxSpeed)
+
+        var zero = Path()
+        zero.move(to: CGPoint(x: 0, y: midY))
+        zero.addLine(to: CGPoint(x: size.width, y: midY))
+        context.stroke(zero,
+                       with: .color(RetroTheme.amberDim),
+                       lineWidth: 0.5)
+
+        for limit in [Sim.paxSpeed, Sim.freightSpeed] {
+            let dy = CGFloat(limit) * yScale
+            for y in [midY - dy, midY + dy] {
+                var p = Path()
+                p.move(to: CGPoint(x: 0, y: y))
+                p.addLine(to: CGPoint(x: size.width, y: y))
+                context.stroke(p,
+                               with: .color(RetroTheme.amberDim.opacity(0.5)),
+                               style: StrokeStyle(lineWidth: 0.5, dash: [4, 4]))
+            }
+        }
+
+        let totalSlots = max(1, Self.traceCapacity - 1)
+        let xStep = size.width / CGFloat(totalSlots)
+
+        for (idx, row) in rows.enumerated() {
+            guard let history = velocityHistory[row.id], history.count > 1 else { continue }
+            let startSlot = Self.traceCapacity - history.count
+            var path = Path()
+            for (i, v) in history.enumerated() {
+                let x = CGFloat(startSlot + i) * xStep
+                let y = midY - CGFloat(v) * yScale
+                if i == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+            context.stroke(path,
+                           with: .color(traceColor(for: idx)),
+                           lineWidth: 1.2)
+        }
+    }
+
+    // FR-only bridge from the firmware-side English state mnemonics
+    // (which match what real KONE/Otis/Schindler service terminals
+    // print) to the French operational vocabulary a GEII student writes
+    // in their maintenance logs. Rendered only when the UI language is
+    // French; in English the column needs no gloss.
+    @ViewBuilder private var stateGloss: some View {
+        if language.current == .fr {
+            Text(language.t("dynamics.state.gloss"))
+                .font(Self.smallFont)
+                .foregroundColor(RetroTheme.amberDim)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var profileFooter: some View {
@@ -146,7 +289,7 @@ struct DynamicsMonitorWindow: View {
                     language.t("dynamics.profile.limits"),
                     Sim.paxSpeed, Sim.paxAccel,
                     Sim.freightSpeed, Sim.freightAccel))
-            .font(RetroTheme.monoSm)
+            .font(Self.smallFont)
             .foregroundColor(RetroTheme.amberDim)
     }
 
@@ -155,11 +298,11 @@ struct DynamicsMonitorWindow: View {
         fmt.dateFormat = "HH:mm:ss"
         return HStack {
             Text(language.t("dynamics.refresh"))
-                .font(RetroTheme.monoSm)
+                .font(Self.smallFont)
                 .foregroundColor(RetroTheme.amberDim)
             Spacer()
             Text(fmt.string(from: lastUpdate))
-                .font(RetroTheme.monoSm)
+                .font(Self.smallFont)
                 .foregroundColor(RetroTheme.green)
         }
     }

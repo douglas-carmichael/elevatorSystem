@@ -106,8 +106,8 @@ enum Strings {
         add("btn.profile.pax",      "PAX",                                 "PASS.")
         add("btn.profile.freight",  "FRT",                                 "FRET")
 
-        add("hint.line",            "F1/?=HELP  TAB=CAB  L=LANG  D=DCL  M=MODBUS  A=AUTO/MAN  Q=QUIT",
-                                    "F1/?=AIDE  TAB=CAB  L=LANGUE  D=DCL  M=MODBUS  A=AUTO/MAN  Q=QUITTER")
+        add("hint.line",            "F1/?=HELP  TAB=CAB  L=LANG  D=DCL  Y=DYNAMICS  M=MODBUS  A=AUTO/MAN  Q=QUIT",
+                                    "F1/?=AIDE  TAB=CAB  L=LANGUE  D=DCL  Y=DYNAMIQUE  M=MODBUS  A=AUTO/MAN  Q=QUITTER")
         add("hint.lang",            "LANG",                                "LANGUE")
 
         add("help.title",           "KEYBOARD COMMANDS",                   "RACCOURCIS CLAVIER")
@@ -195,10 +195,8 @@ enum Strings {
         add("scene.isolate",        "ISOLATE",                             "ISOLER")
         add("scene.isolated.prefix","ISOLATED:",                           "ISOLÉ :")
 
-        add("dynamics.title",       "CAB DYNAMICS MONITOR (LPD)",
-                                    "MONITEUR DYNAMIQUE CABINES (LPD)")
-        add("dynamics.subtitle",    "Live trapezoidal velocity profile -- sampled every 500 ms",
-                                    "Profil trapézoïdal en direct -- échantillon toutes les 500 ms")
+        add("dynamics.title",       "CAB DYNAMICS MONITOR",
+                                    "MONITEUR DYNAMIQUE CABINES")
         add("dynamics.col.cab",     "CAB",                                 "CAB")
         add("dynamics.col.pos",     "POSITION",                            "POSITION")
         add("dynamics.col.vel",     "VELOCITY",                            "VITESSE")
@@ -207,8 +205,13 @@ enum Strings {
         add("dynamics.col.state",   "STATE",                               "ÉTAT")
         add("dynamics.empty",       "(no cabs registered)",                "(aucune cabine enregistrée)")
         add("dynamics.profile.limits","PROFILE LIMITS:",                   "LIMITES PROFIL :")
-        add("dynamics.refresh",     "REFRESH 500 ms   -   PRESS Y FROM CONTROL PANEL TO TOGGLE",
-                                    "RAFRAÎCHI 500 ms   -   APPUYEZ Y DEPUIS LE PUPITRE")
+        add("dynamics.refresh",     "REFRESH 500 ms",                      "RAFRAÎCHI 500 ms")
+        add("dynamics.trace.title", "VELOCITY TRACE  60 s WINDOW",
+                                    "TRACÉ VITESSE  FENÊTRE 60 s")
+        add("dynamics.trace.empty", "(awaiting samples)",                  "(échantillons en attente)")
+        add("dynamics.trace.axis",  "+limit / 0 / -limit (fl/s)",          "+limite / 0 / -limite (fl/s)")
+        add("dynamics.state.gloss", "",
+                                    "LÉGENDE  IDLE=REPOS  ACCEL=ACCÉL.  CRUISE=CROISIÈRE  DECEL=DÉCÉL.  STOPPING=ARRÊT  BRAKE=FREIN  DOORS=PORTES  PARKED=À QUAI  OBSTR=OBSTRUCTION  PHASE-II=PHASE II  INDEP=INDÉP.")
         add("help.k.dynamics",      "Open cab dynamics monitor",           "Ouvrir le moniteur de dynamique cabines")
 
         add("misc.unknown",         "UNKNOWN",                             "INCONNU")
