@@ -166,7 +166,7 @@ extension DCLEngine {
         if msg.isEmpty {
             return "%REPLY-F-NOMSG, no message text specified\n"
         }
-        return "%REPLY-S-REPLIED, reply queued to OPER0:  \"\(msg)\"\n"
+        return "%REPLY-S-REPLIED, reply queued to OPA0:  \"\(msg)\"\n"
     }
 
     func requestCmd(_ cmd: Parsed) -> String {

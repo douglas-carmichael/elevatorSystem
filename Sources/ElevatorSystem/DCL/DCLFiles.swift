@@ -143,11 +143,129 @@ extension DCLEngine {
         return "%SYSTEM-F-NOLOGNAM, no logical name match\n"
     }
 
-    func mailCmd() -> String {
-        var s = "\n        \(osTitle) Personal Mail Utility\n"
-        s += "        \(stamp(Date()))\n\n"
-        s += "You have no new messages.\n"
-        s += "MAIL>EXIT\n"
+    // Real DCL MAIL is a fully interactive subshell; the simulator
+    // takes positional subverbs (DIRECTORY / READ / DELETE / SEND) so
+    // a script or operator can drive it in one line. The shape of the
+    // output mirrors what a real `MAIL>` prompt prints for each subverb.
+    func mailCmd(_ cmd: Parsed) -> String {
+        let banner = "\n        \(osTitle) Personal Mail Utility\n        \(stamp(Date()))\n\n"
+        guard let head = cmd.positional.first?.uppercased() else {
+            // `MAIL` with no args: banner + status line, auto-EXIT.
+            let unread = mailbox.filter { !$0.read }.count
+            var s = banner
+            if mailbox.isEmpty {
+                s += "You have no messages.\n"
+            } else if unread == 0 {
+                s += "You have \(mailbox.count) message\(mailbox.count == 1 ? "" : "s") (0 new).\n"
+            } else {
+                s += "You have \(unread) new message\(unread == 1 ? "" : "s") (\(mailbox.count) total).\n"
+                s += "MAIL>DIRECTORY\n"
+                s += mailDirectoryTable()
+            }
+            s += "MAIL>EXIT\n"
+            return s
+        }
+        let rest = Array(cmd.positional.dropFirst())
+        switch head {
+        case "DIR", "DIRECTORY":
+            if mailbox.isEmpty {
+                return banner + "%MAIL-E-NOMSGS, no messages\nMAIL>EXIT\n"
+            }
+            return banner + "MAIL>DIRECTORY\n" + mailDirectoryTable() + "MAIL>EXIT\n"
+
+        case "READ":
+            let idx: Int
+            if let raw = rest.first, let n = Int(raw) {
+                guard let i = mailbox.firstIndex(where: { $0.id == n }) else {
+                    return banner + "%MAIL-E-NOMSG, no message with id \(n)\nMAIL>EXIT\n"
+                }
+                idx = i
+            } else {
+                guard let i = mailbox.firstIndex(where: { !$0.read })
+                    ?? (mailbox.isEmpty ? nil : mailbox.count - 1) else {
+                    return banner + "%MAIL-E-NOMSGS, no messages\nMAIL>EXIT\n"
+                }
+                idx = i
+            }
+            mailbox[idx].read = true
+            let m = mailbox[idx]
+            var s = banner + "MAIL>READ\n"
+            s += "From:    \(m.from)\n"
+            s += "Date:    \(stamp(m.received))\n"
+            s += "Subject: \(m.subject)\n\n"
+            s += m.body
+            if !m.body.hasSuffix("\n") { s += "\n" }
+            s += "MAIL>EXIT\n"
+            return s
+
+        case "DELETE":
+            guard let raw = rest.first, let n = Int(raw) else {
+                return banner + "%MAIL-F-NOMSG, message id required\nMAIL>EXIT\n"
+            }
+            guard let i = mailbox.firstIndex(where: { $0.id == n }) else {
+                return banner + "%MAIL-E-NOMSG, no message with id \(n)\nMAIL>EXIT\n"
+            }
+            mailbox.remove(at: i)
+            return banner + "MAIL>DELETE \(n)\n%MAIL-I-DELETED, message \(n) deleted\nMAIL>EXIT\n"
+
+        case "SEND":
+            // SEND addr "subject" "body..." -- everything after the
+            // address is collapsed into the body if subject quotes
+            // aren't supplied, matching the way real MAIL prompts
+            // for To / Subj / Text in sequence.
+            guard let addr = rest.first else {
+                return banner + "%MAIL-F-NORECIP, address required\nMAIL>EXIT\n"
+            }
+            let tail = Array(rest.dropFirst())
+            let subject: String
+            let body: String
+            if tail.count >= 2 {
+                subject = unquoteMail(tail[0])
+                body = tail.dropFirst().map { unquoteMail($0) }.joined(separator: " ")
+            } else if let only = tail.first {
+                subject = "(no subject)"
+                body = unquoteMail(only)
+            } else {
+                subject = "(no subject)"
+                body = ""
+            }
+            // Loopback to local inbox: real MAIL would hand off to the
+            // mail-router process; here we deliver to ourselves so the
+            // operator can demonstrate the SEND -> READ round-trip.
+            mailbox.append(MailMessage(id: nextMailId,
+                                       from: username,
+                                       subject: subject,
+                                       body: body,
+                                       received: Date(),
+                                       read: false))
+            nextMailId += 1
+            return banner + "MAIL>SEND \(addr)\n%MAIL-S-SENT, message queued for \(addr.uppercased())\nMAIL>EXIT\n"
+
+        default:
+            return banner + "%MAIL-W-UNKKEYWORD, unknown keyword: \(head)\nMAIL>EXIT\n"
+        }
+    }
+
+    private func mailDirectoryTable() -> String {
+        var s = "  #   From            Date              Subject\n"
+        s += "  --  --------------  ----------------  --------------------------------\n"
+        for m in mailbox {
+            let mark = m.read ? " " : "*"
+            let from = m.from.padding(toLength: 14, withPad: " ", startingAt: 0)
+            let when = stamp(m.received)
+                .padding(toLength: 16, withPad: " ", startingAt: 0)
+            let subj = m.subject.count > 32
+                ? String(m.subject.prefix(29)) + "..."
+                : m.subject
+            s += String(format: "%@%3d  %@  %@  %@\n", mark, m.id, from, when, subj)
+        }
+        return s
+    }
+
+    private func unquoteMail(_ s: String) -> String {
+        if s.hasPrefix("\"") && s.hasSuffix("\"") && s.count >= 2 {
+            return String(s.dropFirst().dropLast())
+        }
         return s
     }
 
@@ -203,9 +321,53 @@ extension DCLEngine {
         return "%DCL-W-ATTNOPAR, no parent process to attach to\n"
     }
 
-    func waitCmd(_ cmd: Parsed) -> String {
-        // WAIT 00:00:nn -- no-op (we don't actually block)
+    // WAIT delta-time -- real VMS pauses the process for the supplied
+    // delta. We parse HH:MM:SS / MM:SS / SS forms (optionally with a
+    // fractional-second tail) and await `Task.sleep`, so a command
+    // procedure that issues `WAIT 00:00:02` actually gives the elevator
+    // physics two real seconds to evolve before the next line runs.
+    func waitCmd(_ cmd: Parsed) async -> String {
+        guard let raw = cmd.positional.first else { return "" }
+        let seconds = parseDeltaTime(raw)
+        guard seconds > 0 else { return "" }
+        let nanos = UInt64(seconds * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: nanos)
         return ""
+    }
+
+    private func parseDeltaTime(_ raw: String) -> Double {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        // Plain decimal seconds: "2", "2.5"
+        if let bare = Double(trimmed) { return bare }
+        // [DDD] HH:MM:SS[.cc] with optional day prefix.
+        let dayPart: Substring
+        let timePart: Substring
+        if let space = trimmed.firstIndex(of: " ") {
+            dayPart = trimmed[..<space]
+            timePart = trimmed[trimmed.index(after: space)...]
+        } else {
+            dayPart = ""
+            timePart = Substring(trimmed)
+        }
+        let days = Double(dayPart) ?? 0
+        let pieces = timePart.split(separator: ":")
+        let h: Double, m: Double, s: Double
+        switch pieces.count {
+        case 3:
+            h = Double(pieces[0]) ?? 0
+            m = Double(pieces[1]) ?? 0
+            s = Double(pieces[2]) ?? 0
+        case 2:
+            h = 0
+            m = Double(pieces[0]) ?? 0
+            s = Double(pieces[1]) ?? 0
+        case 1:
+            h = 0; m = 0
+            s = Double(pieces[0]) ?? 0
+        default:
+            return 0
+        }
+        return days * 86_400 + h * 3_600 + m * 60 + s
     }
 
     func accountingCmd() -> String {
@@ -220,12 +382,91 @@ extension DCLEngine {
         return s
     }
 
-    func installCmd() -> String {
-        var s = "\nDISK$ELEV_SYS:<SYS0.SYSCOMMON.SYSEXE>.EXE\n"
-        s += "  CONTROL.EXE;42                   Open Hdr Shar Lnkbl\n"
-        s += "  DOORS.EXE;19                     Open Hdr Shar Lnkbl\n"
-        s += "  SCHED.EXE;7                      Open Hdr Shar Lnkbl\n"
+    // INSTALL maintains a session-scoped set of "known" images. STARTUP.COM
+    // runs `INSTALL ADD ELEVATOR$ROOT:[CONTROL]CONTROL.EXE /OPEN/SHARED` --
+    // that ADD now actually mutates installedImages, so a subsequent
+    // INSTALL LIST reflects what's been installed during this session.
+    func installCmd(_ cmd: Parsed) -> String {
+        let head = cmd.positional.first?.uppercased() ?? "LIST"
+        let rest = Array(cmd.positional.dropFirst())
+
+        switch head {
+        case "ADD", "CREATE", "REPLACE":
+            guard let path = rest.first else {
+                return "%INSTALL-F-NOPARM, file specification required\n"
+            }
+            let base = installBaseName(path)
+            // Derive flags from /qualifiers on the verb (/OPEN, /SHARED,
+            // /HEADER_RESIDENT, /PROTECT, etc) -- the real INSTALL prints
+            // a similar abbreviated flag list in its LIST output.
+            let flags = installFlags(from: cmd.qualifiers)
+            // Replace existing entry with same base name, or append.
+            if let idx = installedImages.firstIndex(where: { installBaseName($0.name) == base }) {
+                installedImages[idx] = InstalledImage(name: base, flags: flags)
+            } else {
+                installedImages.append(InstalledImage(name: base, flags: flags))
+            }
+            return "%INSTALL-I-LOADED, \(base) installed (\(flags))\n"
+
+        case "REMOVE", "DELETE":
+            guard let path = rest.first else {
+                return "%INSTALL-F-NOPARM, file specification required\n"
+            }
+            let base = installBaseName(path)
+            guard let idx = installedImages.firstIndex(where: { installBaseName($0.name) == base }) else {
+                return "%INSTALL-W-NOTKNOWN, \(base) is not a known image\n"
+            }
+            installedImages.remove(at: idx)
+            return "%INSTALL-I-REMOVED, \(base) removed from known-image table\n"
+
+        case "LIST":
+            fallthrough
+        default:
+            var s = "\nDISK$ELEV_SYS:<SYS0.SYSCOMMON.SYSEXE>.EXE\n"
+            if installedImages.isEmpty {
+                s += "  (no images installed)\n"
+            } else {
+                for image in installedImages {
+                    let nm = image.name.padding(toLength: 34, withPad: " ", startingAt: 0)
+                    s += "  \(nm)\(image.flags)\n"
+                }
+            }
+            return s
+        }
+    }
+
+    private func installBaseName(_ path: String) -> String {
+        // Strip device:[directory] and version; keep "FOO.EXE;n" or
+        // synthesize ";1" if none was supplied, so the LIST output is
+        // consistent with what real INSTALL prints.
+        var s = path.uppercased()
+        if let bracket = s.lastIndex(of: "]") { s = String(s[s.index(after: bracket)...]) }
+        if let colon = s.lastIndex(of: ":") { s = String(s[s.index(after: colon)...]) }
+        if !s.contains(";") { s += ";1" }
         return s
+    }
+
+    private func installFlags(from qualifiers: [(name: String, value: String?)]) -> String {
+        var flags: [String] = []
+        var hasOpen = false
+        for q in qualifiers {
+            switch q.name.uppercased() {
+            case let n where n.hasPrefix("OPEN"):      flags.append("Open"); hasOpen = true
+            case let n where n.hasPrefix("SHAR"):      flags.append("Shar")
+            case let n where n.hasPrefix("HEAD"):      flags.append("Hdr")
+            case let n where n.hasPrefix("PROT"):      flags.append("Prot")
+            case let n where n.hasPrefix("WRIT"):      flags.append("Wrt")
+            case let n where n.hasPrefix("EXEC"):      flags.append("Exec")
+            case let n where n.hasPrefix("PRIV"):      flags.append("Priv")
+            default: break
+            }
+        }
+        if !hasOpen && flags.isEmpty {
+            flags = ["Lnkbl"]
+        } else if !flags.contains("Hdr") {
+            flags.append("Lnkbl")
+        }
+        return flags.joined(separator: " ")
     }
 
     func productCmd() -> String {
@@ -244,23 +485,219 @@ extension DCLEngine {
             return "%SEARCH-F-NOFILES, no files specified\n"
         }
         let file = cmd.positional[0]
-        return "%SEARCH-I-NOMATCHES, no strings matched in \(defaultDevice)\(defaultDirectory)\(file)\n"
+        let normalized = scriptStore.normalize(file)
+        guard let body = scriptStore.read(name: normalized) else {
+            return "%SEARCH-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(file) as input\n-RMS-E-FNF, file not found\n"
+        }
+        let needles = Array(cmd.positional.dropFirst()).map { unquote($0) }
+        let exact = cmd.hasQualifier("EXACT", min: 3)
+        let lines = body.components(separatedBy: "\n")
+        var hits = 0
+        var out = ""
+        for (idx, line) in lines.enumerated() {
+            let hay = exact ? line : line.lowercased()
+            let matched = needles.contains { needle in
+                let pin = exact ? needle : needle.lowercased()
+                return hay.contains(pin)
+            }
+            if matched {
+                out += String(format: "%6d  %@\n", idx + 1, line)
+                hits += 1
+            }
+        }
+        if hits == 0 {
+            return "%SEARCH-I-NOMATCHES, no strings matched in \(defaultDevice)\(defaultDirectory)\(normalized)\n"
+        }
+        out += "\n***************\n\(defaultDevice)\(defaultDirectory)\(normalized);1\n\(hits) occurrence\(hits == 1 ? "" : "s") matched\n"
+        return out
     }
 
     func printCmd(_ cmd: Parsed) -> String {
         guard let file = cmd.positional.first else {
             return "%PRINT-F-NOPARM, missing parameter on PRINT\n"
         }
+        let normalized = scriptStore.normalize(file)
+        guard scriptStore.read(name: normalized) != nil else {
+            return "%PRINT-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(file) as input\n-RMS-E-FNF, file not found\n"
+        }
         let job = Int.random(in: 1000...9999)
         return "Job \(file) (queue SYS$PRINT, entry \(job)) holding\n"
     }
 
-    func submitCmd(_ cmd: Parsed) -> String {
+    // ------------------------------------------------------------------
+    // COPY / RENAME / APPEND / PURGE / DIFFERENCES
+    //
+    // These previously short-circuited to a fake RMS-E-FNF regardless of
+    // whether the file existed. The scriptStore can actually round-trip
+    // .COM content, so wire the verbs up to read/write through it; for
+    // anything outside the user-writable .COM namespace the existing
+    // read-only contract still applies and we fall back to RMS-E-FNF.
+
+    func copyCmd(_ cmd: Parsed) -> String {
+        guard cmd.positional.count >= 2 else {
+            return "%COPY-F-NOFILES, two file parameters required\n"
+        }
+        let src = cmd.positional[0]
+        let dst = cmd.positional[1]
+        let srcNorm = scriptStore.normalize(src)
+        guard let body = scriptStore.read(name: srcNorm) else {
+            return "%COPY-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(src) as input\n-RMS-E-FNF, file not found\n"
+        }
+        let dstNorm = scriptStore.normalize(dst)
+        guard scriptStore.write(name: dstNorm, body: body) else {
+            return "%COPY-E-OPENOUT, error opening \(defaultDevice)\(defaultDirectory)\(dst) as output\n"
+        }
+        return "%COPY-S-COPIED, \(defaultDevice)\(defaultDirectory)\(srcNorm);1 copied to \(defaultDevice)\(defaultDirectory)\(dstNorm);1 (1 block)\n"
+    }
+
+    func renameCmd(_ cmd: Parsed) -> String {
+        guard cmd.positional.count >= 2 else {
+            return "%RENAME-F-NOFILES, two file parameters required\n"
+        }
+        let src = cmd.positional[0]
+        let dst = cmd.positional[1]
+        let srcNorm = scriptStore.normalize(src)
+        guard let body = scriptStore.read(name: srcNorm) else {
+            return "%RENAME-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(src) as input\n-RMS-E-FNF, file not found\n"
+        }
+        let dstNorm = scriptStore.normalize(dst)
+        guard scriptStore.write(name: dstNorm, body: body) else {
+            return "%RENAME-E-OPENOUT, error opening \(defaultDevice)\(defaultDirectory)\(dst) as output\n"
+        }
+        _ = scriptStore.delete(name: srcNorm)
+        return "%RENAME-I-RENAMED, \(defaultDevice)\(defaultDirectory)\(srcNorm);1 renamed to \(defaultDevice)\(defaultDirectory)\(dstNorm);1\n"
+    }
+
+    func appendCmd(_ cmd: Parsed) -> String {
+        guard cmd.positional.count >= 2 else {
+            return "%APPEND-F-NOFILES, two file parameters required\n"
+        }
+        let src = cmd.positional[0]
+        let dst = cmd.positional[1]
+        let srcNorm = scriptStore.normalize(src)
+        let dstNorm = scriptStore.normalize(dst)
+        guard let srcBody = scriptStore.read(name: srcNorm) else {
+            return "%APPEND-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(src) as input\n-RMS-E-FNF, file not found\n"
+        }
+        guard let dstBody = scriptStore.read(name: dstNorm) else {
+            return "%APPEND-E-OPENOUT, error opening \(defaultDevice)\(defaultDirectory)\(dst) as output\n-RMS-E-FNF, file not found\n"
+        }
+        var merged = dstBody
+        if !merged.hasSuffix("\n") && !merged.isEmpty { merged += "\n" }
+        merged += srcBody
+        guard scriptStore.write(name: dstNorm, body: merged) else {
+            return "%APPEND-E-OPENOUT, error writing \(defaultDevice)\(defaultDirectory)\(dst)\n"
+        }
+        return "%APPEND-S-APPENDED, \(defaultDevice)\(defaultDirectory)\(srcNorm);1 appended to \(defaultDevice)\(defaultDirectory)\(dstNorm);1\n"
+    }
+
+    // The scriptStore keeps a single ;1 version per file, so PURGE has
+    // nothing to delete -- but it can honestly report that, instead of
+    // pretending the file is missing.
+    func purgeCmd(_ cmd: Parsed) -> String {
+        if let target = cmd.positional.first {
+            let normalized = scriptStore.normalize(target)
+            guard scriptStore.read(name: normalized) != nil else {
+                return "%PURGE-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(target) as input\n-RMS-E-FNF, file not found\n"
+            }
+            return "%PURGE-I-NOFILPURG, no files purged from \(defaultDevice)\(defaultDirectory)\(normalized) (single-version namespace)\n"
+        }
+        let count = scriptStore.list().count
+        return "%PURGE-I-NOFILPURG, no files purged from \(defaultDevice)\(defaultDirectory) (\(count) file\(count == 1 ? "" : "s") inspected, all at ;1)\n"
+    }
+
+    // Simple line-by-line diff: read both files, group CollectionDifference
+    // changes into two ordered run lists, and emit a VMS-flavoured section
+    // header so the output is recognisable to anyone who has used real
+    // DCL DIFFERENCES.
+    func differencesCmd(_ cmd: Parsed) -> String {
+        guard cmd.positional.count >= 2 else {
+            return "%DIFFERENCES-F-NOFILES, two file parameters required\n"
+        }
+        let f1 = cmd.positional[0]
+        let f2 = cmd.positional[1]
+        let n1 = scriptStore.normalize(f1)
+        let n2 = scriptStore.normalize(f2)
+        guard let body1 = scriptStore.read(name: n1) else {
+            return "%DIFFERENCES-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(f1) as input\n-RMS-E-FNF, file not found\n"
+        }
+        guard let body2 = scriptStore.read(name: n2) else {
+            return "%DIFFERENCES-E-OPENIN, error opening \(defaultDevice)\(defaultDirectory)\(f2) as input\n-RMS-E-FNF, file not found\n"
+        }
+        let lines1 = body1.components(separatedBy: "\n")
+        let lines2 = body2.components(separatedBy: "\n")
+        let diff = lines2.difference(from: lines1)
+
+        let path1 = "\(defaultDevice)\(defaultDirectory)\(n1);1"
+        let path2 = "\(defaultDevice)\(defaultDirectory)\(n2);1"
+
+        if diff.isEmpty {
+            return "************\n\(path1)\n\(path2)\nNumber of difference sections found: 0\nNumber of difference records found: 0\n"
+        }
+
+        var removes: [(Int, String)] = []
+        var inserts: [(Int, String)] = []
+        for change in diff {
+            switch change {
+            case .remove(let off, let line, _): removes.append((off, line))
+            case .insert(let off, let line, _): inserts.append((off, line))
+            }
+        }
+        removes.sort { $0.0 < $1.0 }
+        inserts.sort { $0.0 < $1.0 }
+
+        var out = "************\n"
+        out += "File \(path1)\n"
+        if removes.isEmpty {
+            out += "    (no lines unique to this file)\n"
+        } else {
+            for (off, line) in removes {
+                out += String(format: "%6d   %@\n", off + 1, line)
+            }
+        }
+        out += "******\n"
+        out += "File \(path2)\n"
+        if inserts.isEmpty {
+            out += "    (no lines unique to this file)\n"
+        } else {
+            for (off, line) in inserts {
+                out += String(format: "%6d   %@\n", off + 1, line)
+            }
+        }
+        out += "************\n\n"
+        out += "Number of difference sections found: 1\n"
+        out += "Number of difference records found: \(removes.count + inserts.count)\n"
+        return out
+    }
+
+    private func unquote(_ s: String) -> String {
+        if s.hasPrefix("\"") && s.hasSuffix("\"") && s.count >= 2 {
+            return String(s.dropFirst().dropLast())
+        }
+        return s
+    }
+
+    func submitCmd(_ cmd: Parsed) async -> String {
         guard let file = cmd.positional.first else {
             return "%SUBMIT-F-NOPARM, missing parameter on SUBMIT\n"
         }
+        let normalized = scriptStore.normalize(file)
+        guard scriptStore.read(name: normalized) != nil else {
+            return "%SUBMIT-E-OPENIN, error opening \(file) as input\n-RMS-E-FNF, file not found\n"
+        }
+        // Real VMS SUBMIT spools the procedure to SYS$BATCH and runs it
+        // detached, writing output to a .LOG. The simulator keeps the
+        // accepted-job line so the transcript still looks like SUBMIT
+        // but executes synchronously so the student sees the effects in
+        // the same session.
         let job = Int.random(in: 1000...9999)
-        return "Job \(file) (queue SYS$BATCH, entry \(job)) pending\n"
+        var output = "Job \(file) (queue SYS$BATCH, entry \(job)) pending\n"
+        let body = await execComFile(file)
+        if !body.isEmpty {
+            output += body
+            if !body.hasSuffix("\n") { output += "\n" }
+        }
+        return output
     }
 
     /// CREATE -- in this shell, real .COM files get written to the disk

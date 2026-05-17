@@ -14,7 +14,7 @@ extension DCLEngine {
     /// Entry point for the `@file` verb.  Looks the script up in the
     /// store, runs it, and returns the accumulated output that should
     /// appear in the transcript.
-    func execComFile(_ raw: String) -> String {
+    func execComFile(_ raw: String) async -> String {
         // Strip parameters: real DCL allows `@FILE arg1 arg2 ...`. The
         // verb is a single token without spaces, so additional args land
         // in cmd.positional. We only see the raw filename here.
@@ -22,17 +22,17 @@ extension DCLEngine {
         guard let body = scriptStore.read(name: name) else {
             // Provide the canonical STARTUP fallback for compatibility.
             if name == "STARTUP.COM" {
-                return runScript(body: defaultStartupCom(), name: name, args: [])
+                return await runScript(body: defaultStartupCom(), name: name, args: [])
             }
             fail("RMS-E-FNF", "%X00018292")
             return "%DCL-E-OPENIN, error opening \(raw) as input\n-RMS-E-FNF, file not found\n"
         }
-        return runScript(body: body, name: name, args: [])
+        return await runScript(body: body, name: name, args: [])
     }
 
     /// Run the body of a script as if it were typed at the prompt.
     /// Captures every line of output and returns it.
-    func runScript(body: String, name: String, args: [String]) -> String {
+    func runScript(body: String, name: String, args: [String]) async -> String {
         guard scriptDepth < DCLEngine.maxScriptDepth else {
             return "%DCL-E-NESTED, too many nested command procedures (max \(DCLEngine.maxScriptDepth))\n"
         }
@@ -110,7 +110,7 @@ extension DCLEngine {
                         exitRequested = true
                     }
                 case .ifThen(let cmd):
-                    let result = execute(cmd)
+                    let result = await execute(cmd)
                     if !result.isEmpty {
                         output += result + (result.hasSuffix("\n") ? "" : "\n")
                     }
@@ -121,7 +121,7 @@ extension DCLEngine {
             }
 
             // Otherwise dispatch as a normal DCL command line.
-            let result = execute(stripped)
+            let result = await execute(stripped)
             if !result.isEmpty {
                 output += result + (result.hasSuffix("\n") ? "" : "\n")
             }

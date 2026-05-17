@@ -180,7 +180,13 @@ final class LineDiscipline {
         cursor = 0
         historyIndex = nil
         write("\r\n")
-        dcl.submit(line)
+        // dcl.submit is async because WAIT actually pauses via Task.sleep;
+        // detach so the line-discipline keystroke handler returns
+        // immediately and we don't block keyboard input while a script
+        // is sleeping.
+        Task { @MainActor in
+            await dcl.submit(line)
+        }
     }
 
     // MARK: -- History

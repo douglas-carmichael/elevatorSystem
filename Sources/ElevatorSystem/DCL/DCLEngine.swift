@@ -104,6 +104,35 @@ final class DCLEngine: ObservableObject {
     // MOUNT / DISMOUNT state -- volume label per mounted device.
     var mountedVolumes: [String: String] = [:]
 
+    // MAIL state -- in-memory mailbox. A real install routes through
+    // VMSMAIL_PROFILE.DAT plus per-user .MAI files; we hold the inbox in
+    // RAM and seed it with a welcome message so MAIL READ does something
+    // meaningful on first launch.
+    struct MailMessage {
+        let id: Int
+        let from: String
+        let subject: String
+        let body: String
+        let received: Date
+        var read: Bool
+    }
+    var mailbox: [MailMessage] = []
+    var nextMailId: Int = 1
+
+    // INSTALL state -- images that STARTUP.COM's INSTALL ADD has made
+    // known to the system. Seeded with the canonical elevator-control
+    // image set so INSTALL LIST has something to show before STARTUP
+    // runs; subsequent ADDs append to it.
+    struct InstalledImage {
+        let name: String
+        let flags: String       // e.g. "Open Hdr Shar Lnkbl"
+    }
+    var installedImages: [InstalledImage] = [
+        InstalledImage(name: "CONTROL.EXE;42", flags: "Open Hdr Shar Lnkbl"),
+        InstalledImage(name: "DOORS.EXE;19",   flags: "Open Hdr Shar Lnkbl"),
+        InstalledImage(name: "SCHED.EXE;7",    flags: "Open Hdr Shar Lnkbl"),
+    ]
+
     /// Set during SELFTEST so verbs that would normally take over the
     /// screen (RUN <diagnostic>, MONITOR ...) just report what they'd do
     /// instead.
@@ -154,6 +183,27 @@ final class DCLEngine: ObservableObject {
         self.pid = String(format: "%08X", Int.random(in: 0x0000_0400...0x0000_04FF))
         self.defaultDirectory = "[\(self.username)]"
         self.nodeName = Self.makeNodeName()
+        seedInitialMail()
+    }
+
+    private func seedInitialMail() {
+        let now = Date()
+        mailbox.append(MailMessage(
+            id: nextMailId,
+            from: "SYSTEM",
+            subject: "Welcome to the elevator-control cluster",
+            body: "Logged in to node \(nodeName) as \(username).\nUse HELP MAIL for the inbox subverbs.\n",
+            received: now.addingTimeInterval(-300),
+            read: false))
+        nextMailId += 1
+        mailbox.append(MailMessage(
+            id: nextMailId,
+            from: "OPCOM",
+            subject: "STARTUP.COM completed",
+            body: "INSTALL ADD ELEVATOR$ROOT:[CONTROL]CONTROL.EXE /OPEN/SHARED -- ok\nDispatch table loaded; control image is resident.\n",
+            received: now.addingTimeInterval(-180),
+            read: false))
+        nextMailId += 1
     }
 
     /// Build an OpenVMS-plausible 6-character DECnet-style node name
@@ -275,8 +325,10 @@ final class DCLEngine: ObservableObject {
 
     /// Single entry point for input from the terminal line discipline.
     /// The terminal has already echoed the keystrokes and emitted a CRLF;
-    /// we just execute the line and emit the next prompt.
-    func submit(_ raw: String) {
+    /// we just execute the line and emit the next prompt. Async because
+    /// `WAIT` and command procedures that run `WAIT` actually pause via
+    /// `Task.sleep`, matching real VMS semantics.
+    func submit(_ raw: String) async {
         // EDT input mode swallows blank lines and the terminator ".".
         if editorActive {
             // Record the typed line in the transcript so SELFTEST and
@@ -306,7 +358,7 @@ final class DCLEngine: ObservableObject {
             history.append(line)
             if history.count > maxHistory { history.removeFirst() }
         }
-        let body = execute(line)
+        let body = await execute(line)
         if !body.isEmpty {
             out(body)
             if !body.hasSuffix("\n") { out("\n") }
@@ -417,7 +469,7 @@ final class DCLEngine: ObservableObject {
 
     // MARK: -- dispatch
 
-    func execute(_ line: String) -> String {
+    func execute(_ line: String) async -> String {
         let cmd = parse(line)
         let head = cmd.verb
         guard !head.isEmpty else { return "" }
@@ -425,7 +477,7 @@ final class DCLEngine: ObservableObject {
         // Logical-name and symbol indirection: '@file' executes a COM file.
         if head.hasPrefix("@") {
             let file = String(head.dropFirst())
-            return execComFile(file)
+            return await execComFile(file)
         }
 
         succeed()
@@ -441,19 +493,19 @@ final class DCLEngine: ObservableObject {
         case matches(head, "ASSIGN"):                         return assignCmd(cmd)
         case matches(head, "DEFINE"):                         return assignCmd(cmd)   // alias of ASSIGN/PROCESS
         case matches(head, "DEASSIGN"):                       return deassignCmd(cmd)
-        case matches(head, "MAIL"):                           return mailCmd()
+        case matches(head, "MAIL"):                           return mailCmd(cmd)
         case matches(head, "PHONE"):                          return phoneCmd()
         case matches(head, "FINGER", min: 3):                 return fingerCmd(cmd)
         case matches(head, "RECALL", min: 3):                 return recallCmd(cmd)
         case matches(head, "SPAWN"):                          return spawnCmd()
         case matches(head, "ATTACH"):                         return attachCmd()
-        case matches(head, "WAIT"):                           return waitCmd(cmd)
+        case matches(head, "WAIT"):                           return await waitCmd(cmd)
         case matches(head, "ACCOUNTING", min: 4):             return accountingCmd()
-        case matches(head, "INSTALL", min: 3):                return installCmd()
+        case matches(head, "INSTALL", min: 3):                return installCmd(cmd)
         case matches(head, "PRODUCT", min: 4):                return productCmd()
         case matches(head, "SEARCH", min: 4):                 return searchCmd(cmd)
         case matches(head, "PRINT"):                          return printCmd(cmd)
-        case matches(head, "SUBMIT", min: 3):                 return submitCmd(cmd)
+        case matches(head, "SUBMIT", min: 3):                 return await submitCmd(cmd)
         case matches(head, "CALL"):                           return callCmd(cmd)
         case matches(head, "OPEN"):                           return openCmd(cmd)
         case matches(head, "CLOSE"):                          return closeCmd(cmd)
@@ -462,7 +514,7 @@ final class DCLEngine: ObservableObject {
             transcript = ""
             outRaw("\u{1B}[2J\u{1B}[H")
             return ""
-        case matches(head, "SELFTEST", min: 4):               return selfTest()
+        case matches(head, "SELFTEST", min: 4):               return await selfTest()
         case matches(head, "LOGOUT") || matches(head, "EXIT"):
             loggedOut = true
             return logoutText(full: cmd.hasQualifier("FULL", min: 1))
@@ -491,14 +543,15 @@ final class DCLEngine: ObservableObject {
         case matches(head, "PATCH"):                          return noPriv("PATCH")
         case matches(head, "DEPOSIT", min: 4):                return noPriv("DEPOSIT")
 
-        // File-touching verbs. EDIT now launches the in-shell EDT editor;
-        // DELETE removes user-stored .COM files; the rest still fail with
-        // RMS-E-FNF because the rest of the namespace is read-only.
-        case matches(head, "COPY"):                           return rmsFNF("COPY", cmd, op: "COPYIN")
+        // File-touching verbs. EDIT launches the in-shell EDT editor;
+        // COPY / DELETE / PURGE / RENAME / APPEND / DIFFERENCES all
+        // round-trip through scriptStore for .COM files; targets outside
+        // the writable namespace fall through to RMS-E-FNF.
+        case matches(head, "COPY"):                           return copyCmd(cmd)
         case matches(head, "DELETE", min: 3):                 return deleteCmd(cmd)
-        case matches(head, "PURGE", min: 3):                  return rmsFNF("PURGE", cmd, op: "OPENIN")
-        case matches(head, "RENAME", min: 3):                 return rmsFNF("RENAME", cmd, op: "OPENIN")
-        case matches(head, "APPEND", min: 3):                 return rmsFNF("APPEND", cmd, op: "OPENIN")
+        case matches(head, "PURGE", min: 3):                  return purgeCmd(cmd)
+        case matches(head, "RENAME", min: 3):                 return renameCmd(cmd)
+        case matches(head, "APPEND", min: 3):                 return appendCmd(cmd)
         case matches(head, "EDIT"):
             // In SELFTEST mode return a dry-run line so the test pass
             // doesn't leave the editor active. EDIT defaults to the
@@ -510,7 +563,7 @@ final class DCLEngine: ObservableObject {
                 return startEdt(cmd)
             }
             return startEdtScreen(cmd)
-        case matches(head, "DIFFERENCES", min: 4):            return rmsFNF("DIFFERENCES", cmd, op: "OPENIN")
+        case matches(head, "DIFFERENCES", min: 4):            return differencesCmd(cmd)
         case matches(head, "CREATE", min: 3):                 return createCmd(cmd)
         case matches(head, "CONTINUE", min: 3):               return ""
 

@@ -146,7 +146,7 @@ extension DCLEngine {
         case matches(t, "EXAMINE", min: 4):
             return "\n  EXAMINE address\n      Display the longword stored at the given virtual address.\n      Hex addresses may be entered as ^X1000 or 1000.\n"
         case matches(t, "REPLY"):
-            return "\n  REPLY \"text\"\n      Queue a reply line to the operator console (OPER0:).\n"
+            return "\n  REPLY \"text\"\n      Queue a reply line to the operator console (OPA0:).\n"
         case matches(t, "REQUEST", min: 4):
             return "\n  REQUEST \"text\"\n      Log an operator-assistance request through OPCOM.\n"
 
@@ -496,7 +496,7 @@ extension DCLEngine {
     /// SELFTEST -- drives every documented DCL verb once and prints a
     /// one-line pass / fail summary per command. A clean run means every
     /// verb dispatches and returns without panicking.
-    func selfTest() -> String {
+    func selfTest() async -> String {
         let verbs: [String] = [
             "SHOW PROCESS", "SHOW PROCESS/ALL",
             "SHOW SYSTEM", "SHOW USERS", "SHOW DEVICES", "SHOW MEMORY",
@@ -552,7 +552,7 @@ extension DCLEngine {
         dryRun = true
         defer { dryRun = false }
         for v in verbs {
-            let body = execute(v)
+            let body = await execute(v)
             let chars = body.count
             let badFmt = body.contains("(null)") || body.contains("0x") && body.contains("Optional")
             let status: String
