@@ -18,7 +18,6 @@ extension DCLEngine {
         case matches(what, "NETWORK",     min: 3): return showNetwork()
         case matches(what, "QUEUE",       min: 4): return showQueue()
         case matches(what, "ALARMS",      min: 3): return showAlarms()
-        case matches(what, "DISPATCH",    min: 4): return showDispatch()
         case matches(what, "LOGICAL",     min: 3): return showLogical(cmd)
         case matches(what, "SYMBOL",      min: 3): return showSymbol(cmd)
         case matches(what, "ERROR",       min: 3): return showError()
@@ -37,8 +36,6 @@ extension DCLEngine {
         case matches(what, "CONNECTIONS", min: 4): return showConnections()
         case matches(what, "AUDIT",       min: 3): return showAudit()
         case matches(what, "DIAGNOSTICS", min: 4): return showDiagnostics()
-        case matches(what, "CALLS",       min: 4): return showCalls()
-        case matches(what, "LOAD"):                return showLoad()
         default:
             fail("DCL-W-IVKEYW", "%X00038088")
             return "%DCL-W-IVKEYW, unrecognized keyword - check validity and spelling\n   \\\(what)\\\n"
@@ -50,13 +47,13 @@ extension DCLEngine {
     /// pads; here it's the value driven by the boarding model in
     /// ElevatorWorld and surfaced via Modbus IR 48..55 and DI 40..47.
     func showLoad() -> String {
-        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
-        var s = "\n  Cab platform load cells -- \(stamp(Date()))\n\n"
-        s += "    Cab        Load (kg)   Rated   Pct      State\n"
-        s += "    ---------  ---------   -----   -----    --------\n"
+        guard let world else { return tr("lpdcp.cmd.shownoworld") }
+        var s = String(format: tr("lpdcp.load.title"), stamp(Date()))
+        s += tr("lpdcp.load.header")
+        s += tr("lpdcp.load.sep")
         let cabs = world.sortedElevators
         if cabs.isEmpty {
-            s += "    (no cabs registered)\n"
+            s += tr("lpdcp.load.nocabs")
             return s
         }
         for cab in cabs {
@@ -64,13 +61,13 @@ extension DCLEngine {
                 .padding(toLength: 9, withPad: " ", startingAt: 0)
             let rated = cab.profile.ratedLoadKg
             let pct = cab.loadKg / rated * 100.0
-            let state: String
-            if pct > 110 { state = "OVERLOAD" }
-            else if pct > 80 { state = "FULL" }
-            else if pct < 5 { state = "EMPTY" }
-            else { state = "NOMINAL" }
+            let stateKey: String
+            if pct > 110     { stateKey = "lpdcp.load.state.overload" }
+            else if pct > 80 { stateKey = "lpdcp.load.state.full" }
+            else if pct < 5  { stateKey = "lpdcp.load.state.empty" }
+            else             { stateKey = "lpdcp.load.state.nominal" }
             s += String(format: "    %@  %7.0f     %5.0f   %5.1f%%   %@\n",
-                        label, cab.loadKg, rated, pct, state)
+                        label, cab.loadKg, rated, pct, tr(stateKey))
         }
         return s
     }
@@ -82,38 +79,40 @@ extension DCLEngine {
     /// the landing stays lit until a cab arrives in the requested
     /// direction.
     func showCalls() -> String {
-        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
-        var s = "\n  Active landing-fixture (hall) calls:\n"
-        s += "    Seq   Floor  Dir  Assigned cab\n"
-        s += "    ----  -----  ---  ----------------\n"
+        guard let world else { return tr("lpdcp.cmd.shownoworld") }
+        var s = tr("lpdcp.calls.hall.title")
+        s += tr("lpdcp.calls.hall.header")
+        s += tr("lpdcp.calls.hall.sep")
         if world.hallCalls.isEmpty {
-            s += "    (none)\n"
+            s += tr("lpdcp.calls.hall.none")
         } else {
             for c in world.hallCalls.prefix(20) {
-                let dirLabel = c.direction == .up ? "UP " : "DN "
+                let dirLabel = c.direction == .up
+                    ? tr("lpdcp.calls.hall.up")
+                    : tr("lpdcp.calls.hall.dn")
                 let cabName: String
                 if let cabId = c.assignedCabId,
                    let cab = world.elevators.first(where: { $0.id == cabId }) {
                     cabName = world.displayLabel(for: cab)
                 } else {
-                    cabName = "(unassigned)"
+                    cabName = tr("lpdcp.calls.hall.unassigned")
                 }
                 s += String(format: "    %04d  %5d  %@  %@\n",
                             c.sequence, c.floor, dirLabel, cabName)
             }
         }
-        s += "\n  In-cab (car) call queues:\n"
-        s += "    Cab        Queue\n"
-        s += "    ---------  ---------------------------------\n"
+        s += tr("lpdcp.calls.car.title")
+        s += tr("lpdcp.calls.car.header")
+        s += tr("lpdcp.calls.car.sep")
         let cabs = world.sortedElevators.filter { $0.ownerPeerId == world.localPeerId }
         if cabs.isEmpty {
-            s += "    (no local cabs)\n"
+            s += tr("lpdcp.calls.car.nocabs")
         } else {
             for cab in cabs {
                 let cabLabel = world.displayLabel(for: cab)
                     .padding(toLength: 9, withPad: " ", startingAt: 0)
                 let queueStr = cab.queue.isEmpty
-                    ? "(empty)"
+                    ? tr("lpdcp.calls.car.empty")
                     : cab.queue.map { String($0) }.joined(separator: " -> ")
                 s += "    \(cabLabel)  \(queueStr)\n"
             }
@@ -122,15 +121,15 @@ extension DCLEngine {
     }
 
     func showDispatch() -> String {
-        guard let world else { return "%SHOW-W-NOWORLD, elevator world not attached\n" }
-        var s = "\n  Group dispatch mode: "
+        guard let world else { return tr("lpdcp.cmd.shownoworld") }
+        var s = tr("lpdcp.disp.mode")
         s += world.dispatchMode == .destination
-            ? "DESTINATION  (lobby keypad allocates per-call)\n"
-            : "COLLECTIVE   (per-cab queues, traditional hall buttons)\n"
+            ? tr("lpdcp.disp.dest")
+            : tr("lpdcp.disp.coll")
         if !world.destinationLog.isEmpty {
-            s += "\n  Recent destination-dispatch allocations:\n"
-            s += "    Seq   Time                     From  To   Cab        ETA\n"
-            s += "    ----  -----------------------  ----  ---  ---------  ------\n"
+            s += tr("lpdcp.disp.recent.title")
+            s += tr("lpdcp.disp.recent.header")
+            s += tr("lpdcp.disp.recent.sep")
             for c in world.destinationLog.prefix(10) {
                 let cab = c.cabLabel.padding(toLength: 9, withPad: " ", startingAt: 0)
                 s += String(format: "    %04d  %@  %4d  %3d  %@  %5.1fs\n",

@@ -55,7 +55,6 @@ struct DynamicsMonitorWindow: View {
                 Spacer().frame(height: 8)
                 profileFooter
                 stateGloss
-                Spacer()
                 statusBar
             }
             .padding(20)

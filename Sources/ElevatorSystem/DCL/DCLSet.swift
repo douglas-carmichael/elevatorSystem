@@ -14,8 +14,6 @@ extension DCLEngine {
         case matches(what, "NOVERIFY", min: 3): return ""
         case matches(what, "PASSWORD", min: 4): return setPassword()
         case matches(what, "PROCESS", min: 4):  return setProcess(cmd)
-        case matches(what, "CAB"):              return setCab(cmd)
-        case matches(what, "BUILDING", min: 4): return setBuilding(cmd)
         default:
             return noPriv("SET \(what)")
         }
@@ -31,11 +29,11 @@ extension DCLEngine {
     /// open. EPO does the same for every cab EXCEPT the designated
     /// survivor, which keeps running on backup power.
     func setBuilding(_ cmd: Parsed) -> String {
-        guard let world else { return "%CTRL-E-NOWORLD, no world\n" }
+        guard let world else { return tr("lpdcp.cmd.noworld") }
         if cmd.hasQualifier("NORMAL", min: 3) {
             world.buildingMode = .normal
             world.epoCabId = nil
-            return "%CTRL-S-MODE, building returned to normal operation\n"
+            return tr("lpdcp.bldg.modenormal")
         }
         if let disp = cmd.qualifierValue("DISPATCH", min: 4) {
             let mode: DispatchMode
@@ -45,12 +43,12 @@ extension DCLEngine {
             case "COLLECTIVE", "COLL":
                 mode = .collective
             default:
-                return "%DCL-W-IVKEYW, /DISPATCH expects COLLECTIVE or DESTINATION\n"
+                return tr("lpdcp.bldg.dispkeyw")
             }
             world.dispatchMode = mode
             return mode == .destination
-                ? "%CTRL-S-DISPATCH, destination dispatch enabled -- CALL DESTINATION /FROM=<n> /TO=<m>\n"
-                : "%CTRL-S-DISPATCH, collective control restored\n"
+                ? tr("lpdcp.bldg.dispdest")
+                : tr("lpdcp.bldg.dispcoll")
         }
         if let fire = cmd.qualifierValue("FIRE_RECALL", min: 4)
                         ?? cmd.qualifierValue("FIRE", min: 4) {
@@ -60,11 +58,11 @@ extension DCLEngine {
             }
             if fire.uppercased() == "ON" {
                 world.buildingMode = .fireRecall
-                return "%CTRL-W-FIRERECALL, Phase I Fire Service active -- all cabs recall to floor \(world.recallFloor)\n"
+                return String(format: tr("lpdcp.bldg.fireon"), world.recallFloor)
             } else {
                 world.buildingMode = .normal
                 world.epoCabId = nil
-                return "%CTRL-S-FIRERESET, Phase I Fire Service released\n"
+                return tr("lpdcp.bldg.fireoff")
             }
         }
         if let epo = cmd.qualifierValue("EPO", min: 3) {
@@ -77,15 +75,15 @@ extension DCLEngine {
                 }
                 world.buildingMode = .emergencyPower
                 let surv = world.epoCabId.flatMap { id in world.elevators.first(where: { $0.id == id }) }
-                let survLabel = surv.map { world.displayLabel(for: $0) } ?? "(none)"
-                return "%CTRL-W-EPO, Emergency Power Operation -- only cab \(survLabel) remains on backup\n"
+                let survLabel = surv.map { world.displayLabel(for: $0) } ?? tr("lpdcp.bldg.none")
+                return String(format: tr("lpdcp.bldg.epoon"), survLabel)
             } else {
                 world.buildingMode = .normal
                 world.epoCabId = nil
-                return "%CTRL-S-EPORESET, Emergency Power Operation released\n"
+                return tr("lpdcp.bldg.epoff")
             }
         }
-        return "%DCL-W-MISSQUAL, SET BUILDING needs /FIRE_RECALL, /EPO, or /NORMAL\n"
+        return tr("lpdcp.bldg.missqual")
     }
 
     func setDefault(_ cmd: Parsed) -> String {
@@ -157,78 +155,74 @@ extension DCLEngine {
 
     func setCab(_ cmd: Parsed) -> String {
         guard let label = cmd.positional.dropFirst().first else {
-            return "%SET-W-MISSCAB, missing cab identifier\n"
+            return tr("lpdcp.cab.misscab")
         }
         guard let world else {
-            return "%SYSTEM-F-NOWORLD, elevator world not attached\n"
+            return tr("lpdcp.cmd.sysnoworld")
         }
         guard let cab = findCab(label: label, in: world) else {
             fail("SET-W-NOSUCHCAB", "%X000080A4")
-            return "%SET-W-NOSUCHCAB, no such cab \\\(label)\\\n"
+            return String(format: tr("lpdcp.cab.nosuch"), label)
         }
         let dLabel = world.displayLabel(for: cab)
         guard world.canControl(cab) else {
-            return "%SET-W-REMOTE, cab \(dLabel) is owned by a remote node\n"
+            return String(format: tr("lpdcp.cab.remote"), dLabel)
         }
         guard let auto = automation else {
-            return "%SET-F-NOAUTO, automation subsystem not running\n"
+            return tr("lpdcp.cab.noauto")
         }
         if cmd.hasQualifier("MANUAL", min: 3) {
             let was = auto.isAutomatic(cabId: cab.id)
             auto.takeManualControl(cabId: cab.id)
-            if was {
-                return "%SET-I-CABMAN, cab \(dLabel) released from auto-dispatch -- MANUAL CONTROL\n"
-            } else {
-                return "%SET-I-NOCHG, cab \(dLabel) was already under manual control\n"
-            }
+            return was
+                ? String(format: tr("lpdcp.cab.man.set"), dLabel)
+                : String(format: tr("lpdcp.cab.man.nochg"), dLabel)
         }
         if cmd.hasQualifier("AUTOMATIC", min: 4) || cmd.hasQualifier("AUTO", min: 4) {
             let was = auto.isAutomatic(cabId: cab.id)
             auto.returnToAutomatic(cabId: cab.id)
-            if !was {
-                return "%SET-I-CABAUTO, cab \(dLabel) returned to auto-dispatch\n"
-            } else {
-                return "%SET-I-NOCHG, cab \(dLabel) was already under auto-dispatch\n"
-            }
+            return !was
+                ? String(format: tr("lpdcp.cab.auto.set"), dLabel)
+                : String(format: tr("lpdcp.cab.auto.nochg"), dLabel)
         }
         if cmd.hasQualifier("PAX", min: 3) {
             let was = cab.profile
             _ = world.mutateLocal(cab.id) { $0.profile = .pax }
             return was == .pax
-                ? "%SET-I-NOCHG, cab \(dLabel) was already PAX\n"
-                : "%SET-I-CABPAX, cab \(dLabel) profile set to PASSENGER\n"
+                ? String(format: tr("lpdcp.cab.pax.nochg"), dLabel)
+                : String(format: tr("lpdcp.cab.pax.set"), dLabel)
         }
         if cmd.hasQualifier("FREIGHT", min: 3) || cmd.hasQualifier("FRT", min: 3) {
             let was = cab.profile
             _ = world.mutateLocal(cab.id) { $0.profile = .freight }
             return was == .freight
-                ? "%SET-I-NOCHG, cab \(dLabel) was already FREIGHT\n"
-                : "%SET-I-CABFRT, cab \(dLabel) profile set to FREIGHT\n"
+                ? String(format: tr("lpdcp.cab.frt.nochg"), dLabel)
+                : String(format: tr("lpdcp.cab.frt.set"), dLabel)
         }
         if let phase = cmd.qualifierValue("PHASE2", min: 5)
                         ?? cmd.qualifierValue("PHASE_TWO", min: 5) {
             let on = phase.uppercased() == "ON"
             _ = world.mutateLocal(cab.id) { $0.phaseTwoActive = on }
             return on
-                ? "%SET-W-PHASE2, cab \(dLabel) in Phase II Fire Service -- fireman's operation\n"
-                : "%SET-I-PHASE2OFF, cab \(dLabel) Phase II Fire Service released\n"
+                ? String(format: tr("lpdcp.cab.phase2.on"), dLabel)
+                : String(format: tr("lpdcp.cab.phase2.off"), dLabel)
         }
         if let ind = cmd.qualifierValue("INDEPENDENT", min: 3)
                         ?? cmd.qualifierValue("IND", min: 3) {
             let on = ind.uppercased() == "ON"
             _ = world.mutateLocal(cab.id) { $0.independentActive = on }
             return on
-                ? "%SET-I-INDEP, cab \(dLabel) in Independent Service -- doors held open, no group dispatch\n"
-                : "%SET-I-INDEPOFF, cab \(dLabel) returned to normal group dispatch\n"
+                ? String(format: tr("lpdcp.cab.indep.on"), dLabel)
+                : String(format: tr("lpdcp.cab.indep.off"), dLabel)
         }
         if let loadStr = cmd.qualifierValue("LOAD", min: 3),
            let kg = Double(loadStr) {
             let clamped = max(0, min(9999, kg))
             _ = world.mutateLocal(cab.id) { $0.loadKg = clamped }
-            return String(format: "%%SET-I-LOAD, cab %@ platform load now %.0f kg (%.0f%% of rated)\n",
+            return String(format: tr("lpdcp.cab.load.set"),
                           dLabel, clamped,
                           clamped / cab.profile.ratedLoadKg * 100.0)
         }
-        return "%SET-W-MISSQUAL, SET CAB needs /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, /INDEPENDENT or /LOAD\n"
+        return tr("lpdcp.cab.missqual")
     }
 }

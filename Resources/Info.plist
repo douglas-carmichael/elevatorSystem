@@ -27,7 +27,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.simulation</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>15.0</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_elevatorsys._tcp</string>
@@ -38,5 +38,7 @@
 	<string>Discover other elevator controllers on your local network via Bonjour.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSQuitAlwaysKeepsWindows</key>
+	<false/>
 </dict>
 </plist>

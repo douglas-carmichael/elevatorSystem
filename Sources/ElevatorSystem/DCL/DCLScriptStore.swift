@@ -113,7 +113,25 @@ final class DCLScriptStore {
         $ DEFINE/SYSTEM ELEVATOR$ROOT  DISK$ELEV_SYS:[ELEVATOR]
         $ DEFINE/SYSTEM CAB$DATA       DISK$ELEV_DATA:[CABS]
         $ DEFINE/SYSTEM DOOR$STATE     DISK$ELEV_DOORS:[STATE]
+        $ INSTALL ADD ELEVATOR$ROOT:[CONTROL]LPDCP.EXE   /OPEN/SHARED
         $ INSTALL ADD ELEVATOR$ROOT:[CONTROL]CONTROL.EXE /OPEN/SHARED
+        $ EXIT
+        """)
+        seed(name: "LOGIN.COM", body: """
+        $ ! SYS$LOGIN:LOGIN.COM -- per-user logon
+        $ ! Defines the LPD layered-product foreign-command aliases so a
+        $ ! site engineer can type short forms instead of LPDCP <verb> <noun>.
+        $ ! Run automatically by the shell after the LPD splash.
+        $ SET NOON
+        $ LPDCP   == "$SYS$SYSTEM:LPDCP.EXE"
+        $ CAB     == "LPDCP SHOW CAB"
+        $ BLDG    == "LPDCP SHOW BUILDING"
+        $ DPATCH  == "LPDCP SHOW DISPATCH"
+        $ CALLS   == "LPDCP SHOW CALLS"
+        $ LOAD    == "LPDCP SHOW LOAD"
+        $ FIRE    == "LPDCP SET BUILDING /FIRE_RECALL=ON"
+        $ NORMAL  == "LPDCP SET BUILDING /NORMAL"
+        $ WRITE SYS$OUTPUT "LPD-CP aliases loaded:  CAB BLDG DPATCH CALLS LOAD FIRE NORMAL"
         $ EXIT
         """)
         seed(name: "HELLO.COM", body: """
@@ -130,15 +148,17 @@ final class DCLScriptStore {
         $ EXIT
         """)
         seed(name: "DEMO.COM", body: """
-        $ ! DEMO.COM -- drive cab L01 through a short test cycle
+        $ ! DEMO.COM -- drive cab L01 through a short test cycle.
+        $ ! Cab state changes go through LPDCP (the layered control
+        $ ! program); CALL / OPEN / CLOSE remain bare operator verbs.
         $ WRITE SYS$OUTPUT "Putting cab 01 into manual control..."
-        $ SET CAB 01 /MANUAL
+        $ LPDCP SET CAB 01 /MANUAL
         $ CALL CAB 01 FLOOR 5
         $ WAIT 00:00:02
         $ OPEN CAB 01
         $ WAIT 00:00:02
         $ CLOSE CAB 01
-        $ SET CAB 01 /AUTOMATIC
+        $ LPDCP SET CAB 01 /AUTOMATIC
         $ WRITE SYS$OUTPUT "Returned cab 01 to auto-dispatch."
         $ EXIT
         """)

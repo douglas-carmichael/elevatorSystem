@@ -211,7 +211,7 @@ enum Strings {
         add("dynamics.trace.empty", "(awaiting samples)",                  "(échantillons en attente)")
         add("dynamics.trace.axis",  "+limit / 0 / -limit (fl/s)",          "+limite / 0 / -limite (fl/s)")
         add("dynamics.state.gloss", "",
-                                    "LÉGENDE  IDLE=REPOS  ACCEL=ACCÉL.  CRUISE=CROISIÈRE  DECEL=DÉCÉL.  STOPPING=ARRÊT  BRAKE=FREIN  DOORS=PORTES  PARKED=À QUAI  OBSTR=OBSTRUCTION  PHASE-II=PHASE II  INDEP=INDÉP.")
+                                    "LÉGENDE :  IDLE=REPOS  ACCEL=ACCÉL.  CRUISE=CROISIÈRE  DECEL=DÉCÉL.  STOPPING=ARRÊT  BRAKE=FREIN  DOORS=PORTES  PARKED=À QUAI  OBSTR=OBSTRUCTION  PHASE-II=PHASE II  INDEP=INDÉP.")
         add("help.k.dynamics",      "Open cab dynamics monitor",           "Ouvrir le moniteur de dynamique cabines")
 
         add("misc.unknown",         "UNKNOWN",                             "INCONNU")
@@ -328,8 +328,323 @@ enum Strings {
                                     "  RUN WEIGHT_CAL       Étalonnage zéro / gain des capteurs de charge")
         add("login.lpd.lamp",       "  RUN HALL_LAMP_TEST   Cycle every hall-call lamp UP / DOWN",
                                     "  RUN HALL_LAMP_TEST   Cycle de toutes les lampes d'appel HAUT / BAS")
-        add("login.lpd.help",       "Type HELP RUN for details. Press Ctrl/Y inside a test to abort.",
-                                    "Tapez HELP RUN pour les détails. Ctrl/Y dans un test pour annuler.")
+        add("login.lpd.help",       "Type HELP RUN for the test menu, HELP LPDCP for cab and building control. Ctrl/Y aborts.",
+                                    "Tapez HELP RUN pour les tests, HELP LPDCP pour le contrôle des cabines. Ctrl/Y pour annuler.")
+        add("login.lpd.ctrl",       "LPDCP V1.4    --  cab and building control program loaded",
+                                    "LPDCP V1.4    --  programme de contrôle cabines / bâtiment chargé")
+
+        // LPD-CP (LPD Elevator Control Program) localized output.  Same
+        // rationale as LPD-DIAG above -- a French vendor's layered product
+        // would ship localised even though the underlying VMS messages
+        // stay English.
+        add("lpdcp.err.ivverb",       "%%LPDCP-W-IVVERB, unrecognized LPDCP subverb \\%@\\\n   Valid: SHOW, SET, HELP\n",
+                                      "%%LPDCP-W-IVVERB, sous-verbe LPDCP inconnu \\%@\\\n   Valides : SHOW, SET, HELP\n")
+        add("lpdcp.err.show.missqual","%LPDCP-W-MISSQUAL, LPDCP SHOW needs a subject\n   Valid: CAB, BUILDING, DISPATCH, CALLS, LOAD\n",
+                                      "%LPDCP-W-MISSQUAL, LPDCP SHOW exige un objet\n   Valides : CAB, BUILDING, DISPATCH, CALLS, LOAD\n")
+        add("lpdcp.err.show.ivkeyw",  "%%LPDCP-W-IVKEYW, no such LPDCP SHOW subject \\%@\\\n",
+                                      "%%LPDCP-W-IVKEYW, objet LPDCP SHOW inconnu \\%@\\\n")
+        add("lpdcp.err.set.missqual", "%LPDCP-W-MISSQUAL, LPDCP SET needs a subject\n   Valid: CAB, BUILDING\n",
+                                      "%LPDCP-W-MISSQUAL, LPDCP SET exige un objet\n   Valides : CAB, BUILDING\n")
+        add("lpdcp.err.set.ivkeyw",   "%%LPDCP-W-IVKEYW, no such LPDCP SET subject \\%@\\\n",
+                                      "%%LPDCP-W-IVKEYW, objet LPDCP SET inconnu \\%@\\\n")
+
+        // Per-cab status sheet (LPDCP SHOW CAB <label>).
+        add("lpdcp.cab.title",        "\n  Cab %@ -- %@\n\n",
+                                      "\n  Cabine %@ -- %@\n\n")
+        add("lpdcp.cab.position",     "    Position:     ",
+                                      "    Position :    ")
+        add("lpdcp.cab.velocity",     "    Velocity:     ",
+                                      "    Vitesse :     ")
+        add("lpdcp.cab.profile",      "    Profile:      ",
+                                      "    Profil :      ")
+        add("lpdcp.cab.doors",        "    Doors:        ",
+                                      "    Portes :      ")
+        add("lpdcp.cab.load",         "    Load:         ",
+                                      "    Charge :      ")
+        add("lpdcp.cab.mode",         "    Mode:         ",
+                                      "    Mode :        ")
+        add("lpdcp.cab.queue",        "    Queue:        ",
+                                      "    File :        ")
+        add("lpdcp.cab.owner",        "    Owner:        ",
+                                      "    Propriétaire :")
+        add("lpdcp.cab.empty",        "(empty)",
+                                      "(vide)")
+        add("lpdcp.cab.rated",        "%.0f kg (rated %.0f)",
+                                      "%.0f kg (nominal %.0f)")
+
+        add("lpdcp.door.open",        "OPEN",       "OUVERTES")
+        add("lpdcp.door.closed",      "CLOSED",     "FERMÉES")
+        add("lpdcp.door.opening",     "OPENING",    "OUVERTURE")
+        add("lpdcp.door.closing",     "CLOSING",    "FERMETURE")
+
+        add("lpdcp.profile.pax",      "PASSENGER",  "PASSAGERS")
+        add("lpdcp.profile.freight",  "FREIGHT",    "FRET")
+
+        add("lpdcp.mode.phase2",      "PHASE II FIRE SERVICE",  "SERVICE INCENDIE PHASE II")
+        add("lpdcp.mode.indep",       "INDEPENDENT SERVICE",    "SERVICE INDÉPENDANT")
+        add("lpdcp.mode.auto",        "AUTOMATIC",              "AUTOMATIQUE")
+        add("lpdcp.mode.manual",      "MANUAL",                 "MANUEL")
+
+        add("lpdcp.owner.local",      "LOCAL",      "LOCAL")
+        add("lpdcp.owner.remote",     "REMOTE",     "DISTANT")
+
+        // Building summary (LPDCP SHOW BUILDING).
+        add("lpdcp.bldg.title",       "\n  Building summary -- %@\n\n",
+                                      "\n  Synthèse du bâtiment -- %@\n\n")
+        add("lpdcp.bldg.safety",      "    Safety mode:   ",
+                                      "    Mode sécurité :")
+        add("lpdcp.bldg.dispatch",    "    Dispatch:      ",
+                                      "    Régulation :   ")
+        add("lpdcp.bldg.recall",      "    Recall floor:  ",
+                                      "    Étage rappel : ")
+        add("lpdcp.bldg.cabs",        "    Cabs:          %d registered\n",
+                                      "    Cabines :      %d enregistrées\n")
+        add("lpdcp.bldg.mode.normal", "NORMAL",                                   "NORMAL")
+        add("lpdcp.bldg.mode.fire",   "PHASE I FIRE SERVICE -- recall floor %d",
+                                      "SERVICE INCENDIE PHASE I -- étage de rappel %d")
+        add("lpdcp.bldg.mode.epo",    "EMERGENCY POWER OPERATION",
+                                      "FONCTIONNEMENT SUR SECOURS")
+        add("lpdcp.bldg.disp.dest",   "DESTINATION",                              "DESTINATION")
+        add("lpdcp.bldg.disp.coll",   "COLLECTIVE",                               "COLLECTIVE")
+
+        // Synopsis printed when LPDCP is invoked with no subverb.
+        add("lpdcp.synopsis",
+            """
+
+              LPD-CP  LPD Elevator Control Program  V1.4
+              (C) 2026  LPD - LEVAGE & PORTES DAUPHINÉ
+
+              Usage:  $ LPDCP <subverb> <noun> [args] [/qualifiers]
+
+              Subverbs:
+                SHOW    Display elevator state
+                SET     Modify elevator state
+                HELP    Detailed command reference
+            """,
+            """
+
+              LPD-CP  Programme de contrôle ascenseurs LPD  V1.4
+              (C) 2026  LPD - LEVAGE & PORTES DAUPHINÉ
+
+              Usage :  $ LPDCP <sous-verbe> <objet> [args] [/qualif]
+
+              Sous-verbes :
+                SHOW    Afficher l'état des ascenseurs
+                SET     Modifier l'état des ascenseurs
+                HELP    Référence détaillée des commandes
+            """)
+
+        // Detailed reference (LPDCP HELP).
+        add("lpdcp.help.body",
+            """
+
+              SHOW subjects:
+                CAB [label]     Per-cab status, or list all cabs when no label.
+                BUILDING        Safety mode, dispatch mode, recall floor.
+                DISPATCH        Group dispatch mode + recent allocations.
+                CALLS           Latched hall calls and per-cab car-call queues.
+                LOAD            Platform load-cell readouts.
+
+              SET subjects:
+                CAB <label>     /MANUAL | /AUTOMATIC | /PAX | /FREIGHT
+                                /PHASE2=ON|OFF | /INDEPENDENT=ON|OFF | /LOAD=<kg>
+                BUILDING        /FIRE_RECALL=ON|OFF [/FLOOR=n]
+                                /EPO=ON|OFF [/CAB=<label>]
+                                /NORMAL
+                                /DISPATCH=COLLECTIVE|DESTINATION
+
+              SYS$LOGIN:LOGIN.COM seeds the foreign-command aliases CAB, BLDG,
+              DPATCH, CALLS, LOAD, FIRE and NORMAL for typing convenience.
+            """,
+            """
+
+              Objets SHOW :
+                CAB [étiq.]     État d'une cabine, ou liste toutes les cabines.
+                BUILDING        Mode sécurité, mode régulation, étage de rappel.
+                DISPATCH        Mode de régulation + allocations récentes.
+                CALLS           Appels paliers latchés et files de cabines.
+                LOAD            Lecture des capteurs de charge plateforme.
+
+              Objets SET :
+                CAB <étiq.>     /MANUAL | /AUTOMATIC | /PAX | /FREIGHT
+                                /PHASE2=ON|OFF | /INDEPENDENT=ON|OFF | /LOAD=<kg>
+                BUILDING        /FIRE_RECALL=ON|OFF [/FLOOR=n]
+                                /EPO=ON|OFF [/CAB=<étiq.>]
+                                /NORMAL
+                                /DISPATCH=COLLECTIVE|DESTINATION
+
+              SYS$LOGIN:LOGIN.COM initialise les alias de commandes étrangères
+              CAB, BLDG, DPATCH, CALLS, LOAD, FIRE et NORMAL pour la frappe rapide.
+            """)
+
+        // Downstream LPDCP handlers (SET BUILDING, SET CAB, SHOW DISPATCH,
+        // SHOW CALLS, SHOW LOAD). Same EN/FR-on-the-tail, facility-code-stays-
+        // English pattern as the lpdcp.err.* messages above.
+        add("lpdcp.cmd.noworld",
+            "%CTRL-E-NOWORLD, no world\n",
+            "%CTRL-E-NOWORLD, aucun monde\n")
+        add("lpdcp.cmd.sysnoworld",
+            "%SYSTEM-F-NOWORLD, elevator world not attached\n",
+            "%SYSTEM-F-NOWORLD, monde ascenseur non rattaché\n")
+        add("lpdcp.cmd.shownoworld",
+            "%SHOW-W-NOWORLD, elevator world not attached\n",
+            "%SHOW-W-NOWORLD, monde ascenseur non rattaché\n")
+
+        // SET BUILDING
+        add("lpdcp.bldg.modenormal",
+            "%CTRL-S-MODE, building returned to normal operation\n",
+            "%CTRL-S-MODE, bâtiment revenu en service normal\n")
+        add("lpdcp.bldg.dispkeyw",
+            "%DCL-W-IVKEYW, /DISPATCH expects COLLECTIVE or DESTINATION\n",
+            "%DCL-W-IVKEYW, /DISPATCH attend COLLECTIVE ou DESTINATION\n")
+        add("lpdcp.bldg.dispdest",
+            "%CTRL-S-DISPATCH, destination dispatch enabled -- CALL DESTINATION /FROM=<n> /TO=<m>\n",
+            "%CTRL-S-DISPATCH, régulation destination activée -- CALL DESTINATION /FROM=<n> /TO=<m>\n")
+        add("lpdcp.bldg.dispcoll",
+            "%CTRL-S-DISPATCH, collective control restored\n",
+            "%CTRL-S-DISPATCH, contrôle collectif rétabli\n")
+        add("lpdcp.bldg.fireon",
+            "%%CTRL-W-FIRERECALL, Phase I Fire Service active -- all cabs recall to floor %d\n",
+            "%%CTRL-W-FIRERECALL, Service Incendie Phase I actif -- rappel de toutes les cabines à l'étage %d\n")
+        add("lpdcp.bldg.fireoff",
+            "%CTRL-S-FIRERESET, Phase I Fire Service released\n",
+            "%CTRL-S-FIRERESET, Service Incendie Phase I libéré\n")
+        add("lpdcp.bldg.epoon",
+            "%%CTRL-W-EPO, Emergency Power Operation -- only cab %@ remains on backup\n",
+            "%%CTRL-W-EPO, Fonctionnement Secours -- seule la cabine %@ reste sur batterie\n")
+        add("lpdcp.bldg.epoff",
+            "%CTRL-S-EPORESET, Emergency Power Operation released\n",
+            "%CTRL-S-EPORESET, Fonctionnement Secours libéré\n")
+        add("lpdcp.bldg.missqual",
+            "%DCL-W-MISSQUAL, SET BUILDING needs /FIRE_RECALL, /EPO, or /NORMAL\n",
+            "%DCL-W-MISSQUAL, SET BUILDING attend /FIRE_RECALL, /EPO ou /NORMAL\n")
+        add("lpdcp.bldg.none",
+            "(none)",
+            "(aucune)")
+
+        // SET CAB
+        add("lpdcp.cab.misscab",
+            "%SET-W-MISSCAB, missing cab identifier\n",
+            "%SET-W-MISSCAB, identifiant de cabine manquant\n")
+        add("lpdcp.cab.nosuch",
+            "%%SET-W-NOSUCHCAB, no such cab \\%@\\\n",
+            "%%SET-W-NOSUCHCAB, cabine \\%@\\ inconnue\n")
+        add("lpdcp.cab.remote",
+            "%%SET-W-REMOTE, cab %@ is owned by a remote node\n",
+            "%%SET-W-REMOTE, cabine %@ appartient à un nœud distant\n")
+        add("lpdcp.cab.noauto",
+            "%SET-F-NOAUTO, automation subsystem not running\n",
+            "%SET-F-NOAUTO, sous-système d'automatisation arrêté\n")
+        add("lpdcp.cab.man.set",
+            "%%SET-I-CABMAN, cab %@ released from auto-dispatch -- MANUAL CONTROL\n",
+            "%%SET-I-CABMAN, cabine %@ retirée de l'auto-régulation -- CONTRÔLE MANUEL\n")
+        add("lpdcp.cab.man.nochg",
+            "%%SET-I-NOCHG, cab %@ was already under manual control\n",
+            "%%SET-I-NOCHG, cabine %@ déjà en contrôle manuel\n")
+        add("lpdcp.cab.auto.set",
+            "%%SET-I-CABAUTO, cab %@ returned to auto-dispatch\n",
+            "%%SET-I-CABAUTO, cabine %@ remise en auto-régulation\n")
+        add("lpdcp.cab.auto.nochg",
+            "%%SET-I-NOCHG, cab %@ was already under auto-dispatch\n",
+            "%%SET-I-NOCHG, cabine %@ déjà en auto-régulation\n")
+        add("lpdcp.cab.pax.nochg",
+            "%%SET-I-NOCHG, cab %@ was already PAX\n",
+            "%%SET-I-NOCHG, cabine %@ déjà en mode PASSAGERS\n")
+        add("lpdcp.cab.pax.set",
+            "%%SET-I-CABPAX, cab %@ profile set to PASSENGER\n",
+            "%%SET-I-CABPAX, profil de la cabine %@ réglé sur PASSAGERS\n")
+        add("lpdcp.cab.frt.nochg",
+            "%%SET-I-NOCHG, cab %@ was already FREIGHT\n",
+            "%%SET-I-NOCHG, cabine %@ déjà en mode FRET\n")
+        add("lpdcp.cab.frt.set",
+            "%%SET-I-CABFRT, cab %@ profile set to FREIGHT\n",
+            "%%SET-I-CABFRT, profil de la cabine %@ réglé sur FRET\n")
+        add("lpdcp.cab.phase2.on",
+            "%%SET-W-PHASE2, cab %@ in Phase II Fire Service -- fireman's operation\n",
+            "%%SET-W-PHASE2, cabine %@ en Service Incendie Phase II -- opération pompier\n")
+        add("lpdcp.cab.phase2.off",
+            "%%SET-I-PHASE2OFF, cab %@ Phase II Fire Service released\n",
+            "%%SET-I-PHASE2OFF, Service Incendie Phase II libéré sur cabine %@\n")
+        add("lpdcp.cab.indep.on",
+            "%%SET-I-INDEP, cab %@ in Independent Service -- doors held open, no group dispatch\n",
+            "%%SET-I-INDEP, cabine %@ en Service Indépendant -- portes ouvertes, hors régulation\n")
+        add("lpdcp.cab.indep.off",
+            "%%SET-I-INDEPOFF, cab %@ returned to normal group dispatch\n",
+            "%%SET-I-INDEPOFF, cabine %@ remise en régulation de groupe\n")
+        add("lpdcp.cab.load.set",
+            "%%SET-I-LOAD, cab %@ platform load now %.0f kg (%.0f%% of rated)\n",
+            "%%SET-I-LOAD, charge plateforme cabine %@ : %.0f kg (%.0f%% du nominal)\n")
+        add("lpdcp.cab.missqual",
+            "%SET-W-MISSQUAL, SET CAB needs /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, /INDEPENDENT or /LOAD\n",
+            "%SET-W-MISSQUAL, SET CAB attend /MANUAL, /AUTOMATIC, /PAX, /FREIGHT, /PHASE2, /INDEPENDENT ou /LOAD\n")
+
+        // SHOW LOAD
+        add("lpdcp.load.title",
+            "\n  Cab platform load cells -- %@\n\n",
+            "\n  Capteurs de charge plateforme -- %@\n\n")
+        add("lpdcp.load.header",
+            "    Cab        Load (kg)   Rated   Pct      State\n",
+            "    Cabine     Charge (kg) Nominal Pourc.   État\n")
+        add("lpdcp.load.sep",
+            "    ---------  ---------   -----   -----    --------\n",
+            "    ---------  ---------   ------- -------  --------\n")
+        add("lpdcp.load.nocabs",
+            "    (no cabs registered)\n",
+            "    (aucune cabine enregistrée)\n")
+        add("lpdcp.load.state.overload", "OVERLOAD", "SURCHARGE")
+        add("lpdcp.load.state.full",     "FULL",     "PLEIN")
+        add("lpdcp.load.state.empty",    "EMPTY",    "VIDE")
+        add("lpdcp.load.state.nominal",  "NOMINAL",  "NOMINAL")
+
+        // SHOW CALLS
+        add("lpdcp.calls.hall.title",
+            "\n  Active landing-fixture (hall) calls:\n",
+            "\n  Appels palier (boîtier de palier) actifs :\n")
+        add("lpdcp.calls.hall.header",
+            "    Seq   Floor  Dir  Assigned cab\n",
+            "    Séq   Étage  Dir  Cabine attribuée\n")
+        add("lpdcp.calls.hall.sep",
+            "    ----  -----  ---  ----------------\n",
+            "    ----  -----  ---  ----------------\n")
+        add("lpdcp.calls.hall.none",
+            "    (none)\n",
+            "    (aucun)\n")
+        add("lpdcp.calls.hall.up",  "UP ", "HT ")
+        add("lpdcp.calls.hall.dn",  "DN ", "BS ")
+        add("lpdcp.calls.hall.unassigned", "(unassigned)", "(non attribuée)")
+        add("lpdcp.calls.car.title",
+            "\n  In-cab (car) call queues:\n",
+            "\n  Files d'appels en cabine :\n")
+        add("lpdcp.calls.car.header",
+            "    Cab        Queue\n",
+            "    Cabine     File\n")
+        add("lpdcp.calls.car.sep",
+            "    ---------  ---------------------------------\n",
+            "    ---------  ---------------------------------\n")
+        add("lpdcp.calls.car.nocabs",
+            "    (no local cabs)\n",
+            "    (aucune cabine locale)\n")
+        add("lpdcp.calls.car.empty", "(empty)", "(vide)")
+
+        // SHOW DISPATCH
+        add("lpdcp.disp.mode",
+            "\n  Group dispatch mode: ",
+            "\n  Mode de régulation de groupe : ")
+        add("lpdcp.disp.dest",
+            "DESTINATION  (lobby keypad allocates per-call)\n",
+            "DESTINATION  (clavier hall, allocation par appel)\n")
+        add("lpdcp.disp.coll",
+            "COLLECTIVE   (per-cab queues, traditional hall buttons)\n",
+            "COLLECTIVE   (files par cabine, boutons palier classiques)\n")
+        add("lpdcp.disp.recent.title",
+            "\n  Recent destination-dispatch allocations:\n",
+            "\n  Allocations récentes de régulation destination :\n")
+        add("lpdcp.disp.recent.header",
+            "    Seq   Time                     From  To   Cab        ETA\n",
+            "    Séq   Heure                    Dep.  Arr. Cabine     ETA\n")
+        add("lpdcp.disp.recent.sep",
+            "    ----  -----------------------  ----  ---  ---------  ------\n",
+            "    ----  -----------------------  ----  ---- ---------  ------\n")
 
         // Per-step labels (formatted with cab label or floor number).
         add("diag.step.brake.cab",  "Cab %@ -- brake hold force",          "Cabine %@ -- force de freinage")

@@ -41,6 +41,7 @@ struct ElevatorSystemApp: App {
                 .onAppear { bootstrap() }
         }
         .windowResizability(.contentMinSize)
+        .restorationDisabled()
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
@@ -52,6 +53,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(network)
         }
         .windowResizability(.contentMinSize)
+        .restorationDisabled()
 
         WindowGroup("DCL Terminal", id: "dcl") {
             DCLShellWindow()
@@ -59,6 +61,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(dcl)
         }
         .windowResizability(.contentMinSize)
+        .restorationDisabled()
 
         WindowGroup("Cab Dynamics", id: "dynamics") {
             DynamicsMonitorWindow()
@@ -66,6 +69,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(world)
         }
         .windowResizability(.contentMinSize)
+        .restorationDisabled()
     }
 
     private func bootstrap() {
@@ -132,5 +136,14 @@ struct ElevatorSystemApp: App {
             }
             NSApp.terminate(nil)
         }
+    }
+}
+
+private extension Scene {
+    // Opts each WindowGroup out of macOS session restore so the app
+    // launches in its declared layout rather than reopening whatever the
+    // user last had on screen.
+    func restorationDisabled() -> some Scene {
+        self.restorationBehavior(.disabled)
     }
 }

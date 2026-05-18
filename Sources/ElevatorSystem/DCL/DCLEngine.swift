@@ -264,7 +264,19 @@ final class DCLEngine: ObservableObject {
         pendingOutput = ""
         out(banner())
         out(lpdSplash())
-        out(prompt)
+        // Auto-run SYS$LOGIN:LOGIN.COM to populate the LPD-CP foreign-
+        // command aliases (CAB, BLDG, DPATCH, ...) before the first
+        // prompt. Done in a Task because execComFile() is async; the
+        // prompt is emitted by the continuation so it doesn't race
+        // ahead of the LOGIN.COM "aliases loaded" line.
+        Task { @MainActor in
+            let body = await execComFile("LOGIN.COM")
+            if !body.isEmpty {
+                out(body)
+                if !body.hasSuffix("\n") { out("\n") }
+            }
+            out(prompt)
+        }
         // Subscribe to language changes so the banner and splash repaint
         // in the new language when the operator hits `L` in the control
         // panel. Without this the login block stays in whichever language
@@ -331,6 +343,7 @@ final class DCLEngine: ObservableObject {
     func lpdSplash() -> String {
         var s = ""
         s += "    " + tr("login.lpd.line1") + "\n"
+        s += "    " + tr("login.lpd.ctrl")  + "\n"
         s += "    " + tr("login.lpd.line2") + "\n"
         s += "    " + tr("login.lpd.brake")  + "\n"
         s += "    " + tr("login.lpd.door")   + "\n"
@@ -477,10 +490,40 @@ final class DCLEngine: ObservableObject {
                     qualifiers.append((n, v))
                 }
             } else {
-                positional.append(raw)
+                // Non-first tokens may also carry attached qualifiers, e.g.
+                // SET BUILDING/NORMAL -- the keyword is BUILDING and /NORMAL
+                // is its qualifier.
+                let parts = raw.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+                if !parts[0].isEmpty { positional.append(parts[0]) }
+                for p in parts.dropFirst() where !p.isEmpty {
+                    let (n, v) = splitQual(p)
+                    qualifiers.append((n, v))
+                }
             }
         }
         return Parsed(verb: verb, positional: positional, qualifiers: qualifiers)
+    }
+
+    /// Expand a leading foreign-command symbol. Returns nil if the verb
+    /// isn't a defined symbol, or if the symbol's value starts with `$`
+    /// (a real-VMS foreign-command image pointer -- our canonical verbs
+    /// are intercepted by execute() before this hook fires, so the `$`
+    /// form is purely cosmetic).
+    private func expandSymbolAlias(head: String, cmd: Parsed) -> Parsed? {
+        guard let raw = symbols[head] else { return nil }
+        let cleaned = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        if cleaned.isEmpty || cleaned.hasPrefix("$") { return nil }
+        let expansion = parse(cleaned)
+        // Verb + positionals of the expansion come first; the original
+        // command's positionals are appended (so `CAB L01` -> verb=LPDCP,
+        // positional=[SHOW, CAB, L01]).
+        return Parsed(
+            verb: expansion.verb,
+            positional: expansion.positional + cmd.positional,
+            qualifiers: expansion.qualifiers + cmd.qualifiers
+        )
     }
 
     private func splitQual(_ s: String) -> (String, String?) {
@@ -495,8 +538,8 @@ final class DCLEngine: ObservableObject {
     // MARK: -- dispatch
 
     func execute(_ line: String) async -> String {
-        let cmd = parse(line)
-        let head = cmd.verb
+        var cmd = parse(line)
+        var head = cmd.verb
         guard !head.isEmpty else { return "" }
 
         // Logical-name and symbol indirection: '@file' executes a COM file.
@@ -505,10 +548,20 @@ final class DCLEngine: ObservableObject {
             return await execComFile(file)
         }
 
+        // Foreign-command / symbol expansion. Lets LOGIN.COM define short
+        // aliases like CAB :== "LPDCP SHOW CAB"; typing `$ CAB L01` then
+        // dispatches as `$ LPDCP SHOW CAB L01`. Single-shot so cyclic
+        // aliases can't loop the dispatcher.
+        if let expanded = expandSymbolAlias(head: head, cmd: cmd) {
+            cmd = expanded
+            head = cmd.verb
+        }
+
         succeed()
 
         switch true {
         case matches(head, "HELP") || head == "?":           return helpText(topic: cmd.positional.first)
+        case matches(head, "LPDCP", min: 5):                  return lpdcpCmd(cmd)
         case matches(head, "SHOW"):                           return showCmd(cmd)
         case matches(head, "SET"):                            return setCmd(cmd)
         case matches(head, "DIRECTORY", min: 3):              return directoryCmd(cmd)
