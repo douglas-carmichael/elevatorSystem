@@ -658,6 +658,19 @@ enum Strings {
         add("diag.step.lamp.floor", "Floor %@ -- UP / DOWN call lamps",    "Étage %@ -- lampes d'appel HAUT / BAS")
         add("diag.step.lamp.fw",    "Verify lamp driver firmware",         "Vérification du firmware contrôleur")
 
+        // Per-step readings (column is 14 chars wide -- pick translations
+        // that fit so French rendering doesn't end up truncated mid-word).
+        add("diag.brake.reading.engaged",  "%.1f kN engaged",                "%.1f kN serré")
+        add("diag.brake.reading.released", "%.1f kN released",               "%.1f kN lâché")
+        add("diag.brake.reading.moving",   "released, in motion",            "lâché (mvt)")
+        add("diag.door.reading.reverse",   "reverse @ 12 mm",                "inv. @ 12 mm")
+        add("diag.door.reading.armed",     "armed (idle)",                   "armé (inactif)")
+        add("diag.door.reading.idleSuffix"," (idle)",                        " (inactif)")
+        add("diag.lamp.reading.lit",       "up+dn lit",                      "HT+BS allumés")
+        add("diag.reading.noCab",          "(no cab)",                       "(aucune cabine)")
+        add("diag.reading.noWorld",        "(no world)",                     "(aucun monde)")
+        add("diag.weight.reading.records", "%d records",                     "%d entrées")
+
         return t
     }
 

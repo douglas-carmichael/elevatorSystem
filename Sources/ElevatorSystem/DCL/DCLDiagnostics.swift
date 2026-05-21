@@ -125,6 +125,7 @@ extension DCLEngine {
     func startBrakeTest() {
         let pass = tr("diag.status.pass")
         let fail = tr("diag.status.fail")
+        let noCab = tr("diag.reading.noCab")
         let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
@@ -135,17 +136,19 @@ extension DCLEngine {
                 guard let self,
                       let cabId = cabsBySortedLabel[label],
                       let cab = self.world?.elevators.first(where: { $0.id == cabId })
-                else { return ("(no cab)", fail) }
+                else { return (noCab, fail) }
                 // Real brake state -- engaged at rest, released while
                 // moving. Holding-force value is synthesised but tied
                 // to the actual brakeEngaged flag the dispatcher sees.
                 let moving = abs(cab.velocity) > 0.05
                 if moving {
-                    return ("released, in motion", pass)
+                    return (tr("diag.brake.reading.moving"), pass)
                 }
                 let kn = 11.7 + Double((Int(label.dropFirst()) ?? 1) % 4) * 0.18
-                let state = cab.brakeEngaged ? "engaged" : "released"
-                return (String(format: "%.1f kN %@", kn, state),
+                let fmt = cab.brakeEngaged
+                    ? tr("diag.brake.reading.engaged")
+                    : tr("diag.brake.reading.released")
+                return (String(format: fmt, kn),
                         cab.brakeEngaged ? pass : fail)
             })
         }
@@ -159,6 +162,7 @@ extension DCLEngine {
 
     func startDoorTest() {
         let pass = tr("diag.status.pass")
+        let noCab = tr("diag.reading.noCab")
         let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: Elevator] = Dictionary(uniqueKeysWithValues:
@@ -173,7 +177,7 @@ extension DCLEngine {
                 guard let self,
                       let cab = cabsBySortedLabel[label],
                       let world = self.world
-                else { return ("(no cab)", pass) }
+                else { return (noCab, pass) }
                 let triggered = cab.doors == .closed && abs(cab.velocity) < 0.05
                 if triggered {
                     _ = world.mutateLocal(cab.id) { e in
@@ -185,7 +189,7 @@ extension DCLEngine {
                     cab.profile.doorDwellDuration +
                     cab.profile.doorCloseDuration
                 return (String(format: "%.2f s%@", cycle,
-                               triggered ? "" : " (idle)"), pass)
+                               triggered ? "" : tr("diag.door.reading.idleSuffix")), pass)
             })
         }
         // Light-curtain step actually trips the doorObstructed flag on
@@ -199,7 +203,7 @@ extension DCLEngine {
                 guard let self,
                       let cab = cabsBySortedLabel[label],
                       let world = self.world else {
-                    return ("(no cab)", pass)
+                    return (noCab, pass)
                 }
                 let canExercise = cab.doors == .open || cab.doors == .closing
                 _ = world.mutateLocal(cab.id) { e in e.doorObstructed = true }
@@ -207,7 +211,9 @@ extension DCLEngine {
                 // scan to see it and reverse the close cycle.
                 Thread.sleep(forTimeInterval: 0.25)
                 _ = world.mutateLocal(cab.id) { e in e.doorObstructed = false }
-                return (canExercise ? "reverse @ 12 mm" : "armed (idle)", pass)
+                return (canExercise
+                        ? tr("diag.door.reading.reverse")
+                        : tr("diag.door.reading.armed"), pass)
             })
         }
         startTestUtility(name: tr("diag.test.door"),
@@ -218,6 +224,7 @@ extension DCLEngine {
     func startWeightCal() {
         let pass = tr("diag.status.pass")
         let ok   = tr("diag.status.ok")
+        let noCab = tr("diag.reading.noCab")
         let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
@@ -231,7 +238,7 @@ extension DCLEngine {
                 guard let self,
                       let cabId = cabsBySortedLabel[label],
                       let cab = self.world?.elevators.first(where: { $0.id == cabId })
-                else { return ("(no cab)", pass) }
+                else { return (noCab, pass) }
                 let drift = cab.loadKg
                 return (String(format: "%.1f kg", drift),
                         abs(drift) < 5.0 ? pass : tr("diag.status.fail"))
@@ -240,15 +247,16 @@ extension DCLEngine {
                 guard let self,
                       let cabId = cabsBySortedLabel[label],
                       let cab = self.world?.elevators.first(where: { $0.id == cabId })
-                else { return ("(no cab)", pass) }
+                else { return (noCab, pass) }
                 let ratio = cab.profile.ratedLoadKg > 0
                     ? min(1.0, cab.loadKg / cab.profile.ratedLoadKg)
                     : 0
                 return (String(format: "%.2f ratio", ratio), pass)
             })
         }
+        let recordsReading = String(format: tr("diag.weight.reading.records"), cabs.count * 2)
         steps.append(TestStep(label: tr("diag.step.weight.write")) {
-            return ("\(cabs.count * 2) records", ok)
+            return (recordsReading, ok)
         })
         startTestUtility(name: tr("diag.test.weight"),
                          header: tr("diag.col.cab"),
@@ -257,6 +265,7 @@ extension DCLEngine {
 
     func startHallLampTest() {
         let pass = tr("diag.status.pass")
+        let noWorld = tr("diag.reading.noWorld")
         var steps: [TestStep] = []
         // Each step lights the up- and down-lantern at one floor by
         // registering test hall calls (with allocate:false so they
@@ -266,13 +275,13 @@ extension DCLEngine {
             let f = String(format: "%02d", floor)
             let captured = floor
             steps.append(TestStep(label: String(format: tr("diag.step.lamp.floor"), f)) { [weak self] in
-                guard let self, let world = self.world else { return ("(no world)", pass) }
+                guard let self, let world = self.world else { return (noWorld, pass) }
                 let up = world.registerHallCall(floor: captured, direction: .up, allocate: false)
                 let dn = world.registerHallCall(floor: captured, direction: .down, allocate: false)
                 Thread.sleep(forTimeInterval: 0.20)
                 if let id = up?.id { world.removeHallCall(id: id) }
                 if let id = dn?.id { world.removeHallCall(id: id) }
-                return ("up+dn lit", pass)
+                return (tr("diag.lamp.reading.lit"), pass)
             })
         }
         steps.append(TestStep(label: tr("diag.step.lamp.fw")) {
