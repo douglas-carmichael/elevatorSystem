@@ -34,12 +34,18 @@ jobs:
         with:
           swift-version: '6.0.2'
 
+      # Windows pins a NEWER toolchain than Linux on purpose: the windows-latest
+      # runner ships Visual Studio 18 (2026) with MSVC 14.51, whose intrinsics
+      # headers the older Swift 6.0.2 clang can't compile into a module (fails
+      # building _visualc_intrinsics -> ucrt -> SwiftOverlayShims). A current
+      # toolchain has a clang new enough to parse them. The package stays
+      # swift-tools-version:5.9, so the language mode is unchanged.
       - name: Set up Swift (Windows)
         if: runner.os == 'Windows'
         uses: compnerd/gha-setup-swift@main
         with:
-          branch: swift-6.0.2-release
-          tag: 6.0.2-RELEASE
+          branch: swift-6.3.3-release
+          tag: 6.3.3-RELEASE
 
       - name: Swift version
         run: swift --version
