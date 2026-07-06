@@ -1,0 +1,82 @@
+# CI for the main XcodeGen macOS app (complements clusterdaemon.yml, which
+# covers the headless SwiftPM package). Regenerates the .gitignore'd .xcodeproj
+# from project.yml with XcodeGen, builds ElevatorSystem in the Release
+# configuration, and uploads the built .app as a downloadable artifact.
+name: macOS App
+
+on:
+  push:
+    paths:
+      - 'Sources/**'
+      - 'Resources/**'
+      - 'project.yml'
+      - '.github/workflows/macos-app.yml'
+  pull_request:
+    paths:
+      - 'Sources/**'
+      - 'Resources/**'
+      - 'project.yml'
+      - '.github/workflows/macos-app.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (Release)
+    # project.yml sets a macOS 15.0 deployment target, so the runner must ship
+    # the macOS 15 SDK — pin macos-15 rather than the moving macos-latest.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # The app build depends on XcodeGen (not bundled with the runner).
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The .xcodeproj is generated from project.yml and .gitignore'd, so it
+      # must be regenerated before building.
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Diagnostic: surfaces the available scheme/target names in the log if a
+      # future rename ever breaks the -scheme below.
+      - name: List schemes
+        run: xcodebuild -list -project ElevatorSystem.xcodeproj
+
+      # Release build. Code signing is disabled: the runner has no signing
+      # identity, and an unsigned .app is a fine build-verification artifact.
+      # (A distributable, notarized build would add Developer ID signing via
+      # repository secrets — out of scope here.) The Release config leaves
+      # ONLY_ACTIVE_ARCH=NO, so a generic/platform=macOS destination yields a
+      # universal (arm64 + x86_64) binary.
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project ElevatorSystem.xcodeproj \
+            -scheme ElevatorSystem \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            clean build \
+            CODE_SIGNING_ALLOWED=NO
+
+      # ditto (not zip) preserves the .app bundle's symlinks and resource forks.
+      - name: Package .app
+        run: |
+          APP="build/Build/Products/Release/ElevatorSystem.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::built app not found at $APP"
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "ElevatorSystem-Release.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ElevatorSystem-Release
+          path: ElevatorSystem-Release.zip
+          if-no-files-found: error
