@@ -186,12 +186,11 @@ private struct StatusStrip: View {
     @EnvironmentObject var modbus: ModbusTCPServer
 
     var body: some View {
-        // Horizontal ScrollView keeps the strip on one line even when FR
-        // labels run wider than the window: the columns stay readable
-        // and any overflow scrolls instead of forcing the whole control
-        // panel to be sized to the worst-case localised label.
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 18) {
+        // A wrapping FlowLayout keeps the strip on one line when there's room
+        // but wraps onto additional lines when the window is narrow — so every
+        // field stays visible even at the minimum window size, instead of the
+        // trailing fields scrolling off-screen (which wider FR labels caused).
+        FlowLayout(horizontalSpacing: 18, verticalSpacing: 4) {
                 StatusLine(label: language.t("status.you"),
                            value: world.localPeerLabel,
                            valueColor: RetroTheme.cyan)
@@ -220,9 +219,9 @@ private struct StatusStrip: View {
                            value: language.t("status.ready"),
                            valueColor: RetroTheme.green)
                 BlinkingCursor()
-            }
-            .padding(.horizontal, 6)
         }
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var peersValue: String {
