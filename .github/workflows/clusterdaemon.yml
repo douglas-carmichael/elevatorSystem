@@ -1,0 +1,66 @@
+# CI for the headless ClusterDaemon SwiftPM package ONLY — not the XcodeGen
+# macOS app (which is macOS/GUI-only). This is the authoritative check that the
+# daemon's cross-platform code actually builds and its wire codecs round-trip on
+# macOS, Linux, and Windows — the two non-Apple targets can't be built on a Mac
+# dev machine, so CI is where they're verified.
+name: ClusterDaemon
+
+on:
+  push:
+    paths:
+      - 'ClusterDaemon/**'
+      - '.github/workflows/clusterdaemon.yml'
+  pull_request:
+    paths:
+      - 'ClusterDaemon/**'
+      - '.github/workflows/clusterdaemon.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # macOS ships Swift with Xcode. Linux/Windows need a toolchain installed.
+      - name: Set up Swift (Linux)
+        if: runner.os == 'Linux'
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0.2'
+
+      - name: Set up Swift (Windows)
+        if: runner.os == 'Windows'
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.0.2-release
+          tag: 6.0.2-RELEASE
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build -c release --package-path ClusterDaemon
+
+      # Validates the DNS/mDNS codec (compression, round-trip) and the peer wire
+      # (WireCodec/Elevator/HostSnapshot Codable) on THIS platform. Exits non-zero
+      # on any mismatch, locking cross-platform wire compatibility.
+      - name: Self-test (wire codecs)
+        run: swift run -c release --package-path ClusterDaemon elevator-clusterd --selftest
+
+      # Brief real run of the socket + mDNS transport, then stop. Unix only —
+      # timeout/kill semantics are portable there; SIGINT gives a clean exit(0).
+      - name: Smoke run (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          BIN="$(swift build -c release --package-path ClusterDaemon --show-bin-path)/elevator-clusterd"
+          "$BIN" --socket --nodes 2 --cabs 1 --quiet &
+          PID=$!
+          sleep 4
+          kill -INT $PID
+          wait $PID || true

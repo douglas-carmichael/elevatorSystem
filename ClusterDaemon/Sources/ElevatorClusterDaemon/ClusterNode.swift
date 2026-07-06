@@ -1,5 +1,23 @@
 import Foundation
 
+/// Selects the peer transport for a node. A supplied discovery engine means the
+/// hand-rolled mDNS + BSD-socket backend (always the case off-Apple; on Apple
+/// only when forced for verification); otherwise Network.framework/Bonjour.
+func makePeerLink(peerId: String, label: String, queue: DispatchQueue, logger: Logger,
+                  discovery: MDNSEngine?, cabsProvider: @escaping () -> [Elevator]) -> PeerLink {
+    if let discovery {
+        return SocketPeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
+                              discovery: discovery, cabsProvider: cabsProvider)
+    }
+    #if canImport(Network)
+    return ApplePeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
+                         cabsProvider: cabsProvider)
+    #else
+    // Unreachable: off-Apple, `main` always supplies a discovery engine.
+    fatalError("no peer transport available without a discovery engine")
+    #endif
+}
+
 /// A single simulated dispatcher node: a `CabSimulator` (its own cluster of
 /// cabs) plus a `PeerLink` (its Bonjour identity and connections). To the
 /// app this looks exactly like another Mac running ElevatorSystem.
@@ -22,7 +40,7 @@ final class ClusterNode {
     private let logger: Logger
     private let sim: CabSimulator
     private let link: PeerLink
-    private let sampler = HostSampler()
+    private let sampler = HostStats()
 
     private var simTimer: DispatchSourceTimer?
     private var broadcastTimer: DispatchSourceTimer?
@@ -38,7 +56,7 @@ final class ClusterNode {
     private static let statsInterval: TimeInterval = 5.0
 
     init(label: String, cabCount: Int, floors: Int, broadcastHz: Int,
-         queue: DispatchQueue, logger: Logger) {
+         queue: DispatchQueue, logger: Logger, discovery: MDNSEngine?) {
         let peerId = UUID().uuidString
         self.label = label
         self.peerId = peerId
@@ -48,8 +66,8 @@ final class ClusterNode {
         self.logger = logger
         let sim = CabSimulator(ownerPeerId: peerId, cabCount: cabCount, floors: floors)
         self.sim = sim
-        self.link = PeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
-                             cabsProvider: { sim.cabs })
+        self.link = makePeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
+                                 discovery: discovery, cabsProvider: { sim.cabs })
     }
 
     var connectionCount: Int { link.connectionCount }
