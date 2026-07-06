@@ -245,12 +245,21 @@ final class ElevatorWorld: ObservableObject {
     }
 
     private func sampleCabAlarms(at now: Date) {
-        let currentIds = Set(elevators.map(\.id))
+        // A node's SCADA only monitors the cabs it OWNS. Remote cabs are
+        // the owning node's responsibility -- sampling their broadcast
+        // state here would raise cab faults (OVERLOAD, DOOR_HELD, ...) for
+        // conditions this node can't remediate, so the operator could
+        // never clear them: CLEAR ALL would wipe the row and the very next
+        // tick would re-raise it from the still-overloaded remote cab.
+        // (Matches the manual failure injector, which is already
+        // local-only.)
+        let localCabs = locallyOwned()
+        let currentIds = Set(localCabs.map(\.id))
         doorOpenSince = doorOpenSince.filter { currentIds.contains($0.key) }
         doorClosingSince = doorClosingSince.filter { currentIds.contains($0.key) }
         dispatchStallSince = dispatchStallSince.filter { currentIds.contains($0.key) }
 
-        for cab in elevators {
+        for cab in localCabs {
             let source = "CAB \(displayLabel(for: cab))"
             sampleOverspeedAlarm(for: cab, source: source)
             sampleLandingZoneAlarm(for: cab, source: source)
