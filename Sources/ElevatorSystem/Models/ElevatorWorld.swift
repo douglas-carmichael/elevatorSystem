@@ -754,7 +754,11 @@ final class ElevatorWorld: ObservableObject {
             let aLocal = a.ownerPeerId == localPeerId
             let bLocal = b.ownerPeerId == localPeerId
             if aLocal != bLocal { return aLocal }
-            return a.label.localizedStandardCompare(b.label) == .orderedAscending
+            // Sort on the *displayed* label (peer letter + number, e.g.
+            // "A01"), not the raw per-cab label -- otherwise remote cabs
+            // from different peers interleave by number (A01, B01, C01,
+            // A02, ...) instead of grouping per peer (A01..A04, B01..B04).
+            return displayLabel(for: a).localizedStandardCompare(displayLabel(for: b)) == .orderedAscending
         }
     }
 
