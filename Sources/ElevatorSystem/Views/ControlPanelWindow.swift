@@ -767,7 +767,11 @@ private struct ModeControls: View {
 
     var body: some View {
         let canControl = world.canControl(elevator)
-        let isAuto = automation.isAutomatic(cabId: elevator.id)
+        // Reflect the cab's own automatic flag (the value broadcast in its
+        // state), not the local AutoDriver -- the AutoDriver only tracks
+        // locally-owned cabs, so a remote cab would always read MANUAL
+        // even while its owning node drives it in AUTO.
+        let isAuto = elevator.automatic
         HStack(spacing: 6) {
             Text("\(language.t("btn.mode.label")):")
                 .font(RetroTheme.monoSm)
