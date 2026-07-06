@@ -194,7 +194,7 @@ extension DCLEngine {
         case matches(t, "RECALL", min: 3):
             return "\n  RECALL [n] | /ALL | /ERASE\n      RECALL with a number reprints history line n; /ALL lists\n      every command in the recall buffer; /ERASE clears it.\n"
         case matches(t, "MAIL"):
-            return "\n  MAIL\n      Open the personal mail utility. Reports an empty inbox\n      (%MAIL-W-NOMORE) and exits.\n"
+            return "\n  MAIL\n      Open the interactive OpenVMS mail utility (a MAIL> subshell).\n      READ / DIRECTORY page the folder; <Return> reads the next\n      message; NEXT / BACK / FIRST / LAST / CURRENT navigate; SEND /\n      REPLY / FORWARD compose (To / Subj / text, end with CTRL/Z);\n      DELETE, EXTRACT and PRINT act on the current message; EXIT\n      leaves. The building writes in-universe status mail (OPCOM and\n      SCADA notices) into the same inbox as its state changes.\n      MAIL DIRECTORY | READ [n] | SEND addr \"subj\" \"text\" | DELETE n\n      still work as one-line forms for scripts.\n"
         case matches(t, "PHONE"):
             return "\n  PHONE\n      Real-time chat utility. Returns %PHONE-W-NOTAVAIL on this\n      installation.\n"
         case matches(t, "FINGER", min: 3):
@@ -577,7 +577,9 @@ extension DCLEngine {
             "WRITE SYS$OUTPUT \"selftest\"",
             "ASSIGN DKA0: TEST_DISK", "DEASSIGN TEST_DISK",
             "DEFINE TEST_LOG \"value\"", "DEASSIGN TEST_LOG",
-            "MAIL", "PHONE", "FINGER", "FINGER OPERATOR",
+            "MAIL", "MAIL DIRECTORY", "MAIL READ",
+            "MAIL SEND OPERATOR \"selftest\" \"hello\"",
+            "PHONE", "FINGER", "FINGER OPERATOR",
             "RECALL", "RECALL/ALL", "RECALL 1",
             "SPAWN", "ATTACH", "WAIT 00:00:01",
             "ACCOUNTING", "INSTALL", "PRODUCT",

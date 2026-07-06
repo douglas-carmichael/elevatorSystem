@@ -72,6 +72,11 @@ final class LineDiscipline {
                     escState = .normal
                     if dcl.liveActive {
                         dcl.stopMonitor(interrupt: true)
+                    } else if dcl.mailComposingBody {
+                        // ESC ESC finishes a MAIL message body for telnet
+                        // users whose tty eats CTRL/Z (the same fallback the
+                        // screen editor offers).
+                        endMailBody()
                     }
                 } else {
                     escState = .normal
@@ -99,8 +104,19 @@ final class LineDiscipline {
             case 0x03, 0x19:
                 if dcl.liveActive {
                     dcl.stopMonitor(interrupt: true)
+                } else if dcl.mailComposing {
+                    inputBytes.removeAll()
+                    cursor = 0
+                    historyIndex = nil
+                    dcl.abortMailMessage()
                 } else {
                     cancelLine()
+                }
+                dirty = false
+            case 0x1A:
+                // CTRL/Z ends a MAIL message body; harmless elsewhere.
+                if dcl.mailComposingBody {
+                    endMailBody()
                 }
                 dirty = false
             case 0x15:
@@ -172,6 +188,18 @@ final class LineDiscipline {
         write("\r\n")
         dcl.out("%DCL-S-INTRUPT, interrupted\n")
         dcl.out(dcl.prompt)
+    }
+
+    /// Finish a MAIL message body: the current partial input line (typed
+    /// but not yet Return-ed) becomes the last body line, then the engine
+    /// sends the message.
+    private func endMailBody() {
+        let line = String(decoding: inputBytes, as: UTF8.self)
+        inputBytes.removeAll()
+        cursor = 0
+        historyIndex = nil
+        write("\r\n")
+        dcl.endMailMessage(partial: line)
     }
 
     private func submitLine() {

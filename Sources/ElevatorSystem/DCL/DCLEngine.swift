@@ -120,6 +120,48 @@ final class DCLEngine: ObservableObject {
     var nextMailId: Int = 1
     static let mailboxFileName = "MAILBOX.JSON"
 
+    // Interactive MAIL subshell state (see DCLMail.swift). Mirrors the EDT
+    // line-editor pattern: `mailActive` reroutes submit() into runMailLine()
+    // until the operator types EXIT / QUIT. `mailCurrentId` is the "current
+    // message" pointer real MAIL keeps; the compose state machine drives the
+    // SEND / REPLY / FORWARD  To: / Subj: / body  prompt sequence.
+    var mailActive: Bool = false
+    var mailPreviousPrompt: String = "$ "
+    var mailCurrentId: Int? = nil
+
+    enum MailCompose {
+        case none
+        case awaitingTo
+        case awaitingSubject
+        case body
+    }
+    var mailCompose: MailCompose = .none
+    var mailComposeTo: String = ""
+    var mailComposeSubject: String = ""
+    var mailComposeBody: [String] = []
+    /// True while capturing free-form message body lines (between the Subj:
+    /// prompt and the terminating CTRL/Z). The line discipline reads this to
+    /// route CTRL/Z into `endMailMessage`, and submit() reads it to suppress
+    /// the prompt while the body is being typed (just like EDT insert mode).
+    var mailComposingBody: Bool { if case .body = mailCompose { return true } else { return false } }
+    /// True whenever a SEND / REPLY / FORWARD compose is in progress (any of
+    /// the To: / Subj: / body sub-states). CTRL/C aborts the message.
+    var mailComposing: Bool { if case .none = mailCompose { return false } else { return true } }
+
+    // In-universe status-mail generator (see DCLMail.swift). The simulated
+    // building writes OPCOM / SCADA status updates into the inbox as the
+    // world changes; these watermarks stop pre-existing alarms and modes at
+    // login time from backfilling the mailbox.
+    var mailWorldCancellables: Set<AnyCancellable> = []
+    var lastMailedAlarmSequence: Int = 0
+    /// Last time an in-universe alarm mail went out for a given
+    /// "SOURCE|POINT" key. The sampled safety conditions raise / clear /
+    /// re-raise as cabs move, so without this a single flapping point would
+    /// bury the inbox -- we only re-notify a point after a cooldown.
+    var lastMailedAlarmKeyAt: [String: Date] = [:]
+    var lastMailedBuildingMode: BuildingMode? = nil
+    var lastMailedDispatchMode: DispatchMode? = nil
+
     // INSTALL state -- images that STARTUP.COM's INSTALL ADD has made
     // known to the system. Seeded with the canonical elevator-control
     // image set so INSTALL LIST has something to show before STARTUP
@@ -259,6 +301,9 @@ final class DCLEngine: ObservableObject {
         self.network = network
         self.automation = automation
         self.language = language
+        // Subscribe to world events so the simulated building writes
+        // in-universe status mail (OPCOM / SCADA notices) into the inbox.
+        subscribeInUniverseMail()
         // Render the banner now that the language reference is available.
         transcript = ""
         pendingOutput = ""
@@ -383,6 +428,22 @@ final class DCLEngine: ObservableObject {
             if !loggedOut && !editorInsertMode {
                 out(prompt)
             }
+            return
+        }
+
+        // Interactive MAIL subshell routes every line to runMailLine until
+        // the operator types EXIT / QUIT (mirrors the editorActive branch).
+        if mailActive {
+            transcript += "\(prompt)\(raw)\n"
+            let body = runMailLine(raw)
+            if !body.isEmpty {
+                out(body)
+                if !body.hasSuffix("\n") { out("\n") }
+            }
+            // Suppress the prompt while capturing free-form message body
+            // (real MAIL prints nothing until CTRL/Z), exactly like EDT
+            // insert mode.
+            if !loggedOut && !mailComposingBody { out(prompt) }
             return
         }
 

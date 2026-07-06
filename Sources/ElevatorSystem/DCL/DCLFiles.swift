@@ -143,11 +143,17 @@ extension DCLEngine {
         return "%SYSTEM-F-NOLOGNAM, no logical name match\n"
     }
 
-    // Real DCL MAIL is a fully interactive subshell; the simulator
-    // takes positional subverbs (DIRECTORY / READ / DELETE / SEND) so
-    // a script or operator can drive it in one line. The shape of the
-    // output mirrors what a real `MAIL>` prompt prints for each subverb.
+    // Real DCL MAIL is a fully interactive subshell. Typed bare at an
+    // interactive prompt, `MAIL` now opens that subshell (a MAIL> prompt
+    // with READ / DIRECTORY / SEND / REPLY / FORWARD / DELETE / ...; see
+    // DCLMail.swift). When a positional subverb is supplied -- or we're
+    // running inside a command procedure or SELFTEST -- it falls back to
+    // the one-shot form below so scripts and automation keep working on a
+    // single line.
     func mailCmd(_ cmd: Parsed) -> String {
+        if cmd.positional.first == nil, scriptDepth == 0, !dryRun {
+            return enterMailSubshell()
+        }
         let banner = "\n        \(osTitle) Personal Mail Utility\n        \(stamp(Date()))\n\n"
         guard let head = cmd.positional.first?.uppercased() else {
             // `MAIL` with no args: banner + status line, auto-EXIT.
@@ -187,8 +193,10 @@ extension DCLEngine {
                 }
                 idx = i
             }
-            mailbox[idx].read = true
-            persistMailbox()
+            if !dryRun {
+                mailbox[idx].read = true
+                persistMailbox()
+            }
             let m = mailbox[idx]
             var s = banner + "MAIL>READ\n"
             s += "From:    \(m.from)\n"
@@ -206,8 +214,10 @@ extension DCLEngine {
             guard let i = mailbox.firstIndex(where: { $0.id == n }) else {
                 return banner + "%MAIL-E-NOMSG, no message with id \(n)\nMAIL>EXIT\n"
             }
-            mailbox.remove(at: i)
-            persistMailbox()
+            if !dryRun {
+                mailbox.remove(at: i)
+                persistMailbox()
+            }
             return banner + "MAIL>DELETE \(n)\n%MAIL-I-DELETED, message \(n) deleted\nMAIL>EXIT\n"
 
         case "SEND":
@@ -234,14 +244,16 @@ extension DCLEngine {
             // Loopback to local inbox: real MAIL would hand off to the
             // mail-router process; here we deliver to ourselves so the
             // operator can demonstrate the SEND -> READ round-trip.
-            mailbox.append(MailMessage(id: nextMailId,
-                                       from: username,
-                                       subject: subject,
-                                       body: body,
-                                       received: Date(),
-                                       read: false))
-            nextMailId += 1
-            persistMailbox()
+            if !dryRun {
+                mailbox.append(MailMessage(id: nextMailId,
+                                           from: username,
+                                           subject: subject,
+                                           body: body,
+                                           received: Date(),
+                                           read: false))
+                nextMailId += 1
+                persistMailbox()
+            }
             return banner + "MAIL>SEND \(addr)\n%MAIL-S-SENT, message queued for \(addr.uppercased())\nMAIL>EXIT\n"
 
         default:
