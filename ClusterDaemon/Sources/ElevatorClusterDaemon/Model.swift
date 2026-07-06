@@ -217,4 +217,31 @@ struct Elevator: Identifiable, Codable, Hashable {
         guard !(isStoppedAtFloor && nearestFloor == clamped && doors != .closed) else { return }
         queue.append(clamped)
     }
+
+    // Door request mirrors of the app's Elevator, used when a peer forwards
+    // an OPEN / CLOSE command to a daemon-owned cab (see CabSimulator.apply).
+    mutating func requestDoorsOpen() {
+        guard isStoppedAtFloor else { return }
+        if doors == .closed || doors == .closing {
+            doors = .opening
+            if doors == .closing {
+                doorProgress = 1.0 - doorProgress
+            } else {
+                doorProgress = 0
+            }
+        } else if doors == .open {
+            doorDwellRemaining = profile.doorDwellDuration
+        }
+    }
+
+    mutating func requestDoorsClose() {
+        if doors == .open {
+            doors = .closing
+            doorProgress = 0
+            doorDwellRemaining = 0
+        } else if doors == .opening {
+            doors = .closing
+            doorProgress = 1.0 - doorProgress
+        }
+    }
 }

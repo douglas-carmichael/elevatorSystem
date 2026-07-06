@@ -30,8 +30,10 @@ final class SocketPeerLink: PeerLink {
     private var label: String { session.label }
 
     init(peerId: String, label: String, queue: DispatchQueue, logger: Logger,
-         discovery: MDNSEngine, cabsProvider: @escaping () -> [Elevator]) {
-        self.session = PeerSession(peerId: peerId, label: label, logger: logger, cabsProvider: cabsProvider)
+         discovery: MDNSEngine, cabsProvider: @escaping () -> [Elevator],
+         commandSink: @escaping (CabCommand) -> Void) {
+        self.session = PeerSession(peerId: peerId, label: label, logger: logger,
+                                   cabsProvider: cabsProvider, commandSink: commandSink)
         self.queue = queue
         self.logger = logger
         self.discovery = discovery
@@ -139,6 +141,7 @@ final class SocketConn: RawConn {
     var remoteLabel: String?
     var didLogInboundState = false
     var didLogInboundStats = false
+    var didLogInboundCommand = false
     var onReady: (() -> Void)?
     var onMessage: ((PeerMessage) -> Void)?
     var onClosed: (() -> Void)?

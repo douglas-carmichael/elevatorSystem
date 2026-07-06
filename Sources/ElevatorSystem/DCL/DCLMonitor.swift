@@ -445,29 +445,43 @@ extension DCLEngine {
 
     func monitorCluster() -> String {
         var s = mheader("CLUSTER STATISTICS")
-        s += "Node           CPU Busy    BIO Rate    DIO Rate     Mem Use    Lock Rate\n\n"
+        // Fixed-width, right-aligned columns shared by the header and every
+        // data row. Numeric fields are wide enough to hold large values (a
+        // five-figure BIO rate, a busy lock rate) so a wide value can't
+        // widen its field and shove every column after it out of alignment
+        // -- which is what the old hand-spaced header + `%6.2f` rows did.
+        let nodeW = 12
+        let colW  = [11, 12, 11, 10, 12]   // CPU / BIO / DIO / Mem / Lock
+
+        func clusterRow(_ node: String, _ cells: [String]) -> String {
+            var line = node.padding(toLength: nodeW, withPad: " ", startingAt: 0)
+            for (cell, w) in zip(cells, colW) { line += rightPad(cell, width: w) }
+            return line + "\n"
+        }
+
+        s += clusterRow("Node", ["CPU Busy", "BIO Rate", "DIO Rate", "Mem Use", "Lock Rate"]) + "\n"
+
+        func statCells(_ cpu: Double, _ bio: Double, _ dio: Double, _ mem: Double, _ lock: Double) -> [String] {
+            [String(format: "%.2f", cpu), String(format: "%.2f", bio),
+             String(format: "%.2f", dio), String(format: "%.1f%%", mem),
+             String(format: "%.2f", lock)]
+        }
+
         // Local node: pulled from HostStats directly.
         let local = host.snapshot()
-        let nodePad = nodeName.padding(toLength: 12, withPad: " ", startingAt: 0)
-        s += String(format: "%@   %6.2f      %6.2f      %6.2f      %5.1f%%      %6.2f\n",
-                    nodePad,
-                    local.cpuBusy, local.bufferedIORate, local.directIORate,
-                    local.memUsedPercent, local.lockRate)
+        s += clusterRow(nodeName, statCells(local.cpuBusy, local.bufferedIORate,
+                                            local.directIORate, local.memUsedPercent, local.lockRate))
         // Remote nodes: snapshots that peers broadcast every 5s.
         let snapshots = network?.peerStats ?? [:]
         for peer in network?.peers ?? [] {
             let nm = String(peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
-            let nmPad = nm.padding(toLength: 12, withPad: " ", startingAt: 0)
             if let snap = snapshots[peer.id] {
-                s += String(format: "%@   %6.2f      %6.2f      %6.2f      %5.1f%%      %6.2f\n",
-                            nmPad,
-                            snap.cpuBusy, snap.bufferedIORate, snap.directIORate,
-                            snap.memUsedPercent, snap.lockRate)
+                s += clusterRow(nm, statCells(snap.cpuBusy, snap.bufferedIORate,
+                                              snap.directIORate, snap.memUsedPercent, snap.lockRate))
             } else {
                 // Connected but no snapshot has arrived yet (under 5s old or
                 // the peer is a pre-stats build).
-                let dash = rightPad("--", width: 6)
-                s += "\(nmPad)   \(dash)      \(dash)      \(dash)      \(rightPad("--", width: 6))      \(dash)\n"
+                s += clusterRow(nm, Array(repeating: "--", count: colW.count))
             }
         }
         return s

@@ -4,14 +4,15 @@ import Foundation
 /// hand-rolled mDNS + BSD-socket backend (always the case off-Apple; on Apple
 /// only when forced for verification); otherwise Network.framework/Bonjour.
 func makePeerLink(peerId: String, label: String, queue: DispatchQueue, logger: Logger,
-                  discovery: MDNSEngine?, cabsProvider: @escaping () -> [Elevator]) -> PeerLink {
+                  discovery: MDNSEngine?, cabsProvider: @escaping () -> [Elevator],
+                  commandSink: @escaping (CabCommand) -> Void) -> PeerLink {
     if let discovery {
         return SocketPeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
-                              discovery: discovery, cabsProvider: cabsProvider)
+                              discovery: discovery, cabsProvider: cabsProvider, commandSink: commandSink)
     }
     #if canImport(Network)
     return ApplePeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
-                         cabsProvider: cabsProvider)
+                         cabsProvider: cabsProvider, commandSink: commandSink)
     #else
     // Unreachable: off-Apple, `main` always supplies a discovery engine.
     fatalError("no peer transport available without a discovery engine")
@@ -67,7 +68,8 @@ final class ClusterNode {
         let sim = CabSimulator(ownerPeerId: peerId, cabCount: cabCount, floors: floors)
         self.sim = sim
         self.link = makePeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
-                                 discovery: discovery, cabsProvider: { sim.cabs })
+                                 discovery: discovery, cabsProvider: { sim.cabs },
+                                 commandSink: { sim.apply($0) })
     }
 
     var connectionCount: Int { link.connectionCount }

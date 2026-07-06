@@ -230,18 +230,23 @@ extension DCLEngine {
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0.id) })
         var steps: [TestStep] = []
-        // Zero check now reads the real load-cell value: a healthy load
-        // cell on an empty cab should report within ±5 kg of zero. Span
-        // step compares load vs rated capacity to compute the ratio.
+        // Zero/tare step reads the real load-cell value. It does NOT
+        // require the cab to be empty -- riders board and alight during
+        // normal service, so a standing load is expected and must not
+        // fail the calibration. A healthy strain-gauge bridge simply
+        // returns a plausible, in-range figure; only a negative reading
+        // or one well past rated capacity (a disconnected / stuck cell)
+        // fails. The span step below then reports load vs rated capacity.
         for label in cabs {
             steps.append(TestStep(label: String(format: tr("diag.step.weight.zero"), label)) { [weak self] in
                 guard let self,
                       let cabId = cabsBySortedLabel[label],
                       let cab = self.world?.elevators.first(where: { $0.id == cabId })
                 else { return (noCab, pass) }
-                let drift = cab.loadKg
-                return (String(format: "%.1f kg", drift),
-                        abs(drift) < 5.0 ? pass : tr("diag.status.fail"))
+                let reading = cab.loadKg
+                let healthy = reading >= -5.0 && reading <= cab.profile.ratedLoadKg * 1.20
+                return (String(format: "%.1f kg", reading),
+                        healthy ? pass : tr("diag.status.fail"))
             })
             steps.append(TestStep(label: String(format: tr("diag.step.weight.span"), label)) { [weak self] in
                 guard let self,

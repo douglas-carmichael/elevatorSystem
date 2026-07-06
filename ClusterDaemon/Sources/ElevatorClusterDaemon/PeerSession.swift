@@ -22,6 +22,7 @@ protocol RawConn: AnyObject {
     /// a wire round-trip confirmation, not at the broadcast rate.
     var didLogInboundState: Bool { get set }
     var didLogInboundStats: Bool { get set }
+    var didLogInboundCommand: Bool { get set }
     var onReady: (() -> Void)? { get set }
     var onMessage: ((PeerMessage) -> Void)? { get set }
     var onClosed: (() -> Void)? { get set }
@@ -46,17 +47,23 @@ final class PeerSession {
     /// Supplies the node's current cabs so a freshly-connected peer gets a
     /// `.state` for each straight after the `.hello`.
     private let cabsProvider: () -> [Elevator]
+    /// Applies a peer-forwarded control request to one of this node's cabs
+    /// (see `CabSimulator.apply`). Called on the serial queue.
+    private let commandSink: (CabCommand) -> Void
 
     private var connections: [String: RawConn] = [:]
     private var pending: [ObjectIdentifier: RawConn] = [:]
 
     var connectionCount: Int { connections.count }
 
-    init(peerId: String, label: String, logger: Logger, cabsProvider: @escaping () -> [Elevator]) {
+    init(peerId: String, label: String, logger: Logger,
+         cabsProvider: @escaping () -> [Elevator],
+         commandSink: @escaping (CabCommand) -> Void) {
         self.peerId = peerId
         self.label = label
         self.logger = logger
         self.cabsProvider = cabsProvider
+        self.commandSink = commandSink
     }
 
     /// Take ownership of a new connection (inbound or outbound), wire its
@@ -134,6 +141,16 @@ final class PeerSession {
                 conn.didLogInboundStats = true
                 logger.log(String(format: "[%@] rx STATS ok — %@ cpu %.0f%% mem %.0f%%",
                                   label, conn.remoteLabel ?? "?", snap.cpuBusy, snap.memUsedPercent))
+            }
+        case .command:
+            // A peer (the app) is driving one of our cabs. Apply it to the
+            // sim; the next `.state` broadcast carries the result back.
+            if let cmd = message.command {
+                if !conn.didLogInboundCommand {
+                    conn.didLogInboundCommand = true
+                    logger.log("[\(label)] rx CMD ok — \(cmd.kind.rawValue)\(cmd.floor.map { " floor \($0)" } ?? "") from \(conn.remoteLabel ?? "?")")
+                }
+                commandSink(cmd)
             }
         case .remove:
             break

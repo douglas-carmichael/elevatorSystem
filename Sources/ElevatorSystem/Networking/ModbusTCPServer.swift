@@ -13,7 +13,13 @@ import Network
 /// non-privileged alternative every industrial-automation tool
 /// supports via `-p 5020`.
 ///
-/// Register map (8 cabs supported, 0-indexed Modbus addresses):
+/// Register map (8 cabs supported, 0-indexed Modbus addresses). Cab
+/// indices follow the Group Dispatcher's sort order (locally-owned cabs
+/// first, then remote peers' cabs). Control writes (door coils, STOP,
+/// target-floor register) work on BOTH: a write to a remote-owned cab is
+/// forwarded to its owning node over the peer link, exactly like the
+/// on-screen buttons. Profile and mode remain owner-only (a write to a
+/// remote cab there is a no-op). DI 0..7 report which cabs are local.
 ///
 ///   Coils (single-bit, R/W) -- FC 01 read, FC 05 write:
 ///     0..7    Cab[0..7]  Door OPEN command
@@ -464,14 +470,17 @@ final class ModbusClient {
         guard on else { return }                    // pulse-on commands only
         let group = Int(address) / 8
         let cabIdx = Int(address) % 8
-        guard let c = cab(at: cabIdx), let world else { return }
+        guard let c = cab(at: cabIdx) else { return }
+        // Route through PeerNetwork.control so a coil written against a
+        // remote-owned cab is forwarded to its owning node (identical to
+        // the Group Dispatcher buttons); local cabs are mutated in place.
         switch group {
         case 0:                                     // door OPEN
-            _ = world.mutateLocal(c.id) { e in e.requestDoorsOpen() }
+            _ = network?.control(c, .open)
         case 1:                                     // door CLOSE
-            _ = world.mutateLocal(c.id) { e in e.requestDoorsClose() }
+            _ = network?.control(c, .close)
         case 2:                                     // STOP / cancel queue
-            _ = world.mutateLocal(c.id) { e in e.queue.removeAll() }
+            _ = network?.control(c, .stop)
         default:
             break
         }
@@ -521,7 +530,9 @@ final class ModbusClient {
             }
         case 2:                                     // target floor -> enqueue
             let floor = Int(value)
-            _ = world.mutateLocal(c.id) { e in e.enqueue(floor: floor) }
+            // Forwarded to the owning node for a remote cab; enqueued
+            // locally for one we own.
+            _ = network?.control(c, .call, floor: floor)
         default:
             break
         }

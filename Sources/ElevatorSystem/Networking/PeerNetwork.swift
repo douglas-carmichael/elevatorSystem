@@ -249,9 +249,45 @@ final class PeerNetwork: ObservableObject {
         case .stats:
             guard let remoteId = peer.remotePeerId, let snap = message.snapshot else { return }
             peerStats[remoteId] = snap
+        case .command:
+            // A peer is asking us to drive one of OUR cabs. applyControl
+            // goes through mutateLocal, so a request for a cab we don't
+            // own is ignored; the mutation (if any) re-broadcasts the new
+            // state to every peer, including the requester.
+            guard let cmd = message.command else { return }
+            world?.applyControl(cabId: cmd.elevatorId, kind: cmd.kind, floor: cmd.floor)
         case .bye:
             cleanup(peer: peer)
         }
+    }
+
+    // MARK: -- Remote cab control
+
+    /// Whether this node can issue control commands to `cab`: it either
+    /// owns the cab (drives it directly) or holds a live link to the
+    /// owning peer (forwards the command). Used by the group-dispatcher
+    /// UI to enable/disable a cab's controls.
+    func canControl(_ cab: Elevator) -> Bool {
+        if cab.ownerPeerId == localPeerId { return true }
+        return connections[cab.ownerPeerId] != nil
+    }
+
+    /// Issue a control action against `cab`, whether it's local or remote.
+    /// Local cabs are mutated in place; remote cabs have the request
+    /// forwarded to the owning peer over the wire. Returns false only when
+    /// the cab is remote and no link to its owner is currently up.
+    @discardableResult
+    func control(_ cab: Elevator, _ kind: CabCommandKind, floor: Int? = nil) -> Bool {
+        if cab.ownerPeerId == localPeerId {
+            world?.applyControl(cabId: cab.id, kind: kind, floor: floor)
+            return true
+        }
+        guard let conn = connections[cab.ownerPeerId] else { return false }
+        conn.send(.command(CabCommand(elevatorId: cab.id,
+                                      kind: kind,
+                                      floor: floor,
+                                      originPeerId: localPeerId)))
+        return true
     }
 
     private func cleanup(peer: PeerConnection) {

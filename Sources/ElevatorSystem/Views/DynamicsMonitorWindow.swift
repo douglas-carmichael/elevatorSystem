@@ -9,11 +9,24 @@ struct DynamicsMonitorWindow: View {
     @EnvironmentObject var world: ElevatorWorld
     @EnvironmentObject var language: AppLanguage
 
+    /// Ownership filter applied before the per-cab checklist.
+    private enum Scope: CaseIterable {
+        case all, local, remote
+    }
+
     @State private var rows: [Row] = []
     @State private var lastVelocity: [UUID: Double] = [:]
     @State private var lastSample: Date = Date()
     @State private var lastUpdate: Date = Date()
     @State private var velocityHistory: [UUID: [Double]] = [:]
+
+    // Selection state: a scope (all / local / remote) narrows the candidate
+    // cabs, then a per-cab checklist picks which of those to plot. We track
+    // the cabs the user has explicitly HIDDEN rather than shown, so a newly
+    // discovered cab appears by default instead of staying invisible until
+    // manually enabled.
+    @State private var scope: Scope = .all
+    @State private var hidden: Set<UUID> = []
 
     // 60-second rolling window at 500 ms sample rate -> 120 slots; the
     // trace anchors the newest sample to the right edge so it reads
@@ -37,6 +50,7 @@ struct DynamicsMonitorWindow: View {
             RetroTheme.bg.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 8) {
                 header
+                selectionControls
                 tableHeader
                 Rectangle()
                     .fill(RetroTheme.amberDim)
@@ -84,10 +98,27 @@ struct DynamicsMonitorWindow: View {
         let isFreight: Bool
     }
 
+    /// Cabs matching the current ownership scope, in the dispatcher's sort
+    /// order (local first). Feeds the checklist.
+    private func candidateCabs() -> [Elevator] {
+        world.sortedElevators.filter { cab in
+            switch scope {
+            case .all:    return true
+            case .local:  return cab.ownerPeerId == world.localPeerId
+            case .remote: return cab.ownerPeerId != world.localPeerId
+            }
+        }
+    }
+
+    /// Candidates the user hasn't hidden -- the cabs actually plotted.
+    private func visibleCabs() -> [Elevator] {
+        candidateCabs().filter { !hidden.contains($0.id) }
+    }
+
     private func sample() {
         let now = Date()
         let dt = max(0.001, now.timeIntervalSince(lastSample))
-        let cabs = world.sortedElevators
+        let cabs = visibleCabs()
         let computed: [Row] = cabs.map { cab in
             let prev = lastVelocity[cab.id] ?? cab.velocity
             return Row(id: cab.id,
@@ -125,6 +156,63 @@ struct DynamicsMonitorWindow: View {
             .foregroundColor(RetroTheme.amber)
             .retroGlow()
             .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // Scope toggle (ALL / LOCAL / REMOTE) plus a per-cab checklist. The
+    // checklist chips are tagged by display label (L.. local, letter..
+    // remote) and highlight when the cab is currently plotted.
+    private var selectionControls: some View {
+        let candidates = candidateCabs()
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(language.t("dynamics.scope.label"))
+                    .font(Self.smallFont)
+                    .foregroundColor(RetroTheme.amberDim)
+                scopeButton(language.t("dynamics.scope.all"),    .all)
+                scopeButton(language.t("dynamics.scope.local"),  .local)
+                scopeButton(language.t("dynamics.scope.remote"), .remote)
+                Spacer()
+            }
+            HStack(alignment: .top, spacing: 8) {
+                Text(language.t("dynamics.select.label"))
+                    .font(Self.smallFont)
+                    .foregroundColor(RetroTheme.amberDim)
+                    .padding(.top, 4)
+                if candidates.isEmpty {
+                    Text(language.t("dynamics.select.empty"))
+                        .font(Self.smallFont)
+                        .foregroundColor(RetroTheme.greenDim)
+                        .padding(.top, 4)
+                } else {
+                    FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                        RetroButton(language.t("dynamics.select.all")) {
+                            hidden.subtract(candidates.map(\.id))
+                            sample()
+                        }
+                        RetroButton(language.t("dynamics.select.none")) {
+                            hidden.formUnion(candidates.map(\.id))
+                            sample()
+                        }
+                        ForEach(candidates) { cab in
+                            let visible = !hidden.contains(cab.id)
+                            RetroButton(world.displayLabel(for: cab),
+                                        highlighted: visible) {
+                                if visible { hidden.insert(cab.id) } else { hidden.remove(cab.id) }
+                                sample()
+                            }
+                        }
+                    }
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private func scopeButton(_ label: String, _ value: Scope) -> some View {
+        RetroButton(label, highlighted: scope == value) {
+            scope = value
+            sample()
+        }
     }
 
     private var tableHeader: some View {

@@ -28,6 +28,26 @@ enum PeerOp: String, Codable {
     case remove
     case bye
     case stats
+    /// A control request aimed at a cab owned by the receiver (see the
+    /// app's `Protocol.swift`). The daemon honours these against its own
+    /// cabs so the app can drive daemon-owned cabs remotely.
+    case command
+}
+
+/// Mirror of the app's `CabCommandKind`.
+enum CabCommandKind: String, Codable {
+    case call    // enqueue a floor (car call)
+    case open    // request doors open
+    case close   // request doors close
+    case stop    // clear the queue
+}
+
+/// Mirror of the app's `CabCommand`.
+struct CabCommand: Codable, Hashable {
+    var elevatorId: UUID
+    var kind: CabCommandKind
+    var floor: Int?
+    var originPeerId: String
 }
 
 struct PeerMessage: Codable {
@@ -37,25 +57,30 @@ struct PeerMessage: Codable {
     var elevator: Elevator?
     var elevatorId: UUID?
     var snapshot: HostSnapshot?
+    var command: CabCommand?
 
     static func hello(peerId: String, label: String) -> PeerMessage {
-        PeerMessage(op: .hello, peerId: peerId, label: label, elevator: nil, elevatorId: nil, snapshot: nil)
+        PeerMessage(op: .hello, peerId: peerId, label: label, elevator: nil, elevatorId: nil, snapshot: nil, command: nil)
     }
 
     static func state(_ elevator: Elevator) -> PeerMessage {
-        PeerMessage(op: .state, peerId: nil, label: nil, elevator: elevator, elevatorId: nil, snapshot: nil)
+        PeerMessage(op: .state, peerId: nil, label: nil, elevator: elevator, elevatorId: nil, snapshot: nil, command: nil)
     }
 
     static func remove(_ id: UUID) -> PeerMessage {
-        PeerMessage(op: .remove, peerId: nil, label: nil, elevator: nil, elevatorId: id, snapshot: nil)
+        PeerMessage(op: .remove, peerId: nil, label: nil, elevator: nil, elevatorId: id, snapshot: nil, command: nil)
     }
 
     static func bye(peerId: String) -> PeerMessage {
-        PeerMessage(op: .bye, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: nil)
+        PeerMessage(op: .bye, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: nil, command: nil)
     }
 
     static func stats(peerId: String, snapshot: HostSnapshot) -> PeerMessage {
-        PeerMessage(op: .stats, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: snapshot)
+        PeerMessage(op: .stats, peerId: peerId, label: nil, elevator: nil, elevatorId: nil, snapshot: snapshot, command: nil)
+    }
+
+    static func command(_ command: CabCommand) -> PeerMessage {
+        PeerMessage(op: .command, peerId: nil, label: nil, elevator: nil, elevatorId: nil, snapshot: nil, command: command)
     }
 }
 

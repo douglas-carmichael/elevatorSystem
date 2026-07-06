@@ -53,6 +53,25 @@ final class CabSimulator {
         }
     }
 
+    /// Apply a remote-control request forwarded by a peer (the app) to one
+    /// of this node's cabs. Mirrors the app's `ElevatorWorld.applyControl`:
+    /// the change lands on the owned cab and is picked up by the next
+    /// `.state` broadcast. Requests for a cab this node doesn't own are
+    /// ignored. Must be called on the node's serial queue.
+    func apply(_ cmd: CabCommand) {
+        guard let index = cabs.firstIndex(where: { $0.id == cmd.elevatorId && $0.ownerPeerId == ownerPeerId }) else { return }
+        switch cmd.kind {
+        case .call:
+            if let floor = cmd.floor { cabs[index].enqueue(floor: floor) }
+        case .open:
+            cabs[index].requestDoorsOpen()
+        case .close:
+            cabs[index].requestDoorsClose()
+        case .stop:
+            cabs[index].queue.removeAll()
+        }
+    }
+
     // MARK: -- automatic dispatch
 
     /// Mirrors the app's `AutoDriver.autoTick`: an idle cab with no queued

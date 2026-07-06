@@ -212,6 +212,14 @@ enum Strings {
         add("dynamics.trace.axis",  "+limit / 0 / -limit (fl/s)",          "+limite / 0 / -limite (fl/s)")
         add("dynamics.state.gloss", "",
                                     "LÉGENDE :  IDLE=REPOS  ACCEL=ACCÉL.  CRUISE=CROISIÈRE  DECEL=DÉCÉL.  STOPPING=ARRÊT  BRAKE=FREIN  DOORS=PORTES  PARKED=À QUAI  OBSTR=OBSTRUCTION  PHASE-II=PHASE II  INDEP=INDÉP.")
+        add("dynamics.scope.label", "SCOPE:",                              "PORTÉE :")
+        add("dynamics.scope.all",   "ALL",                                 "TOUTES")
+        add("dynamics.scope.local", "LOCAL",                               "LOCALES")
+        add("dynamics.scope.remote","REMOTE",                              "DISTANTES")
+        add("dynamics.select.label","CABS:",                               "CABINES :")
+        add("dynamics.select.all",  "ALL",                                 "TOUTES")
+        add("dynamics.select.none", "NONE",                                "AUCUNE")
+        add("dynamics.select.empty","(no cabs in scope)",                  "(aucune cabine dans la portée)")
         add("help.k.dynamics",      "Open cab dynamics monitor",           "Ouvrir le moniteur de dynamique cabines")
 
         add("misc.unknown",         "UNKNOWN",                             "INCONNU")

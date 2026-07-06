@@ -32,11 +32,14 @@ extension DCLEngine {
             return "%CALL-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
         let dLabel = world.displayLabel(for: cab)
-        guard world.canControl(cab) else {
-            return "%CALL-W-REMOTE, cab \(dLabel) is owned by a remote node\n"
+        switch routeControl(cab, .call, floor: floor, in: world) {
+        case .local:
+            return "%CALL-S-QUEUED, cab \(dLabel) queued for floor \(floor)\n"
+        case .forwarded:
+            return "%CALL-S-FORWARD, cab \(dLabel) queued for floor \(floor) via owner node\n"
+        case .noLink:
+            return "%CALL-W-NOLINK, cab \(dLabel) is remote and its owner is unreachable\n"
         }
-        _ = world.mutateLocal(cab.id) { e in e.enqueue(floor: floor) }
-        return "%CALL-S-QUEUED, cab \(dLabel) queued for floor \(floor)\n"
     }
 
     /// CALL DESTINATION /FROM=<n> /TO=<m>
@@ -118,9 +121,11 @@ extension DCLEngine {
             return "%OPEN-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
         let dLabel = world.displayLabel(for: cab)
-        guard world.canControl(cab) else { return "%OPEN-W-REMOTE, cab \(dLabel) is remote\n" }
-        _ = world.mutateLocal(cab.id) { e in e.requestDoorsOpen() }
-        return "%OPEN-S-DOOR, cab \(dLabel) doors opening\n"
+        switch routeControl(cab, .open, in: world) {
+        case .local:     return "%OPEN-S-DOOR, cab \(dLabel) doors opening\n"
+        case .forwarded: return "%OPEN-S-FORWARD, cab \(dLabel) doors opening via owner node\n"
+        case .noLink:    return "%OPEN-W-NOLINK, cab \(dLabel) is remote and its owner is unreachable\n"
+        }
     }
 
     func closeCmd(_ cmd: Parsed) -> String {
@@ -134,9 +139,11 @@ extension DCLEngine {
             return "%CLOSE-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
         let dLabel = world.displayLabel(for: cab)
-        guard world.canControl(cab) else { return "%CLOSE-W-REMOTE, cab \(dLabel) is remote\n" }
-        _ = world.mutateLocal(cab.id) { e in e.requestDoorsClose() }
-        return "%CLOSE-S-DOOR, cab \(dLabel) doors closing\n"
+        switch routeControl(cab, .close, in: world) {
+        case .local:     return "%CLOSE-S-DOOR, cab \(dLabel) doors closing\n"
+        case .forwarded: return "%CLOSE-S-FORWARD, cab \(dLabel) doors closing via owner node\n"
+        case .noLink:    return "%CLOSE-W-NOLINK, cab \(dLabel) is remote and its owner is unreachable\n"
+        }
     }
 
     func stopCmd(_ cmd: Parsed) -> String {
@@ -150,10 +157,36 @@ extension DCLEngine {
             return "%STOP-W-NOSUCHCAB, no such cab \\\(label)\\\n"
         }
         let dLabel = world.displayLabel(for: cab)
-        guard world.canControl(cab) else { return "%STOP-W-REMOTE, cab \(dLabel) is remote\n" }
         let n = cab.queue.count
-        _ = world.mutateLocal(cab.id) { e in e.queue.removeAll() }
-        return "%STOP-S-CLEARED, cab \(dLabel) queue cleared (\(n) call\(n == 1 ? "" : "s") aborted)\n"
+        switch routeControl(cab, .stop, in: world) {
+        case .local:
+            return "%STOP-S-CLEARED, cab \(dLabel) queue cleared (\(n) call\(n == 1 ? "" : "s") aborted)\n"
+        case .forwarded:
+            return "%STOP-S-FORWARD, cab \(dLabel) queue-clear sent to owner node (\(n) call\(n == 1 ? "" : "s") outstanding)\n"
+        case .noLink:
+            return "%STOP-W-NOLINK, cab \(dLabel) is remote and its owner is unreachable\n"
+        }
+    }
+
+    /// Outcome of routing a cab-control action from a DCL verb.
+    enum ControlRoute {
+        case local      // cab is ours -- mutated directly
+        case forwarded  // cab is remote -- request sent to the owning peer
+        case noLink     // cab is remote but its owner is unreachable
+    }
+
+    /// Route a CALL / OPEN / CLOSE / STOP to a cab whether it's local or
+    /// remote. Local cabs are mutated in place; remote cabs have the
+    /// request forwarded to the owning node over the peer link (the same
+    /// path the group-dispatcher UI uses). Keeps the network dependency
+    /// out of the individual verbs.
+    func routeControl(_ cab: Elevator, _ kind: CabCommandKind, floor: Int? = nil, in world: ElevatorWorld) -> ControlRoute {
+        if world.canControl(cab) {
+            world.applyControl(cabId: cab.id, kind: kind, floor: floor)
+            return .local
+        }
+        guard let network, network.control(cab, kind, floor: floor) else { return .noLink }
+        return .forwarded
     }
 
     /// Find a cab by user-supplied label, matching against display labels (L01, R01)

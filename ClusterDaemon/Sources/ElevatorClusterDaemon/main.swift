@@ -50,6 +50,11 @@ if CommandLine.arguments.contains("--selftest") {
               let stMsg = WireCodec.decode(Data(stBytes.dropLast())),
               let rs = stMsg.snapshot, abs(rs.cpuBusy - 12.5) < 0.001,
               rs.processCount == 210 else { return false }
+        let cmd = CabCommand(elevatorId: cab.id, kind: .call, floor: 5, originPeerId: "PEER-2")
+        guard let cBytes = WireCodec.encode(.command(cmd)),
+              let cMsg = WireCodec.decode(Data(cBytes.dropLast())),
+              cMsg.op == .command, let rc = cMsg.command,
+              rc.elevatorId == cab.id, rc.kind == .call, rc.floor == 5 else { return false }
         return true
     }
     let dnsOK = DNSMessage.selfTest()

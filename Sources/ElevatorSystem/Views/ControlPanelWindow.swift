@@ -101,18 +101,18 @@ struct ControlPanelWindow: View {
             showModbusLegend.toggle()
             return nil
         case "o":
-            mutateFocused { $0.requestDoorsOpen() }
+            controlFocused(.open)
             return nil
         case "c":
-            mutateFocused { $0.requestDoorsClose() }
+            controlFocused(.close)
             return nil
         case "1", "2", "3", "4", "5", "6", "7", "8", "9":
             if let n = Int(chars) {
-                mutateFocused { $0.enqueue(floor: n) }
+                controlFocused(.call, floor: n)
                 return nil
             }
         case "0":
-            mutateFocused { $0.enqueue(floor: 10) }
+            controlFocused(.call, floor: 10)
             return nil
         default:
             break
@@ -121,7 +121,10 @@ struct ControlPanelWindow: View {
     }
 
     private func controllableCabs() -> [Elevator] {
-        world.elevators.filter { world.canControl($0) }
+        // Any cab we can drive -- locally owned, or remote with a live
+        // link to its owner. The keyboard focus ring walks this set so
+        // the number / O / C keys can dispatch remote cabs too.
+        world.elevators.filter { network.canControl($0) }
     }
 
     private func ensureFocus() {
@@ -140,9 +143,10 @@ struct ControlPanelWindow: View {
         }
     }
 
-    private func mutateFocused(_ block: (inout Elevator) -> Void) {
-        guard let id = focusedCabId else { return }
-        _ = world.mutateLocal(id, block)
+    private func controlFocused(_ kind: CabCommandKind, floor: Int? = nil) {
+        guard let id = focusedCabId,
+              let cab = world.elevators.first(where: { $0.id == id }) else { return }
+        _ = network.control(cab, kind, floor: floor)
     }
 
     private func toggleFocusedAutomation() {
@@ -560,6 +564,7 @@ private struct ElevatorPanel: View {
     let elevator: Elevator
     let focused: Bool
     @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var network: PeerNetwork
     @EnvironmentObject var language: AppLanguage
     @EnvironmentObject var automation: AutoDriver
 
@@ -599,7 +604,10 @@ private struct ElevatorPanel: View {
                 }
             }
         }
-        .opacity(world.canControl(elevator) ? 1.0 : 0.78)
+        // Dim only a cab we genuinely can't drive (remote with no live
+        // link to its owner). A locally-owned cab OR a remote cab we hold
+        // a link to renders at full brightness so it reads as controllable.
+        .opacity(network.canControl(elevator) ? 1.0 : 0.78)
     }
 
     private var titleLine: String {
@@ -617,7 +625,9 @@ private struct ElevatorPanel: View {
         if world.canControl(elevator) {
             return elevator.automatic ? RetroTheme.cyan : RetroTheme.amber
         }
-        return RetroTheme.greenDim
+        // Remote cab: full-strength green when we hold a link and can
+        // drive it, dim green only when its owner is unreachable.
+        return network.canControl(elevator) ? RetroTheme.green : RetroTheme.greenDim
     }
 
     private var floorBracket: String {
@@ -681,6 +691,7 @@ private struct ElevatorPanel: View {
 private struct FloorPad: View {
     let elevator: Elevator
     @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var network: PeerNetwork
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
 
@@ -689,11 +700,9 @@ private struct FloorPad: View {
             ForEach((Sim.firstFloor...Sim.lastFloor).reversed(), id: \.self) { floor in
                 let lit = elevator.queue.contains(floor)
                 RetroButton(String(format: "%2d", floor),
-                            enabled: world.canControl(elevator),
+                            enabled: network.canControl(elevator),
                             highlighted: lit) {
-                    _ = world.mutateLocal(elevator.id) { e in
-                        e.enqueue(floor: floor)
-                    }
+                    _ = network.control(elevator, .call, floor: floor)
                 }
             }
         }
@@ -703,17 +712,18 @@ private struct FloorPad: View {
 private struct DoorControls: View {
     let elevator: Elevator
     @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var network: PeerNetwork
     @EnvironmentObject var language: AppLanguage
 
     var body: some View {
         HStack(spacing: 10) {
             RetroButton(language.t("btn.door.open"),
-                        enabled: world.canControl(elevator)) {
-                _ = world.mutateLocal(elevator.id) { $0.requestDoorsOpen() }
+                        enabled: network.canControl(elevator)) {
+                _ = network.control(elevator, .open)
             }
             RetroButton(language.t("btn.door.close"),
-                        enabled: world.canControl(elevator)) {
-                _ = world.mutateLocal(elevator.id) { $0.requestDoorsClose() }
+                        enabled: network.canControl(elevator)) {
+                _ = network.control(elevator, .close)
             }
         }
     }

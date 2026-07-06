@@ -26,8 +26,10 @@ final class ApplePeerLink: PeerLink {
     private var label: String { session.label }
 
     init(peerId: String, label: String, queue: DispatchQueue, logger: Logger,
-         cabsProvider: @escaping () -> [Elevator]) {
-        self.session = PeerSession(peerId: peerId, label: label, logger: logger, cabsProvider: cabsProvider)
+         cabsProvider: @escaping () -> [Elevator],
+         commandSink: @escaping (CabCommand) -> Void) {
+        self.session = PeerSession(peerId: peerId, label: label, logger: logger,
+                                   cabsProvider: cabsProvider, commandSink: commandSink)
         self.queue = queue
         self.logger = logger
     }
@@ -122,6 +124,7 @@ final class AppleConn: RawConn {
     var remoteLabel: String?
     var didLogInboundState = false
     var didLogInboundStats = false
+    var didLogInboundCommand = false
     var onReady: (() -> Void)?
     var onMessage: ((PeerMessage) -> Void)?
     var onClosed: (() -> Void)?

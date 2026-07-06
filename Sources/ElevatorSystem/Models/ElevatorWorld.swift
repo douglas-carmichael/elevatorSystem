@@ -1006,6 +1006,29 @@ final class ElevatorWorld: ObservableObject {
         hallCalls.removeAll { call in call.floor == floor }
     }
 
+    /// Apply a cab-control action to a LOCALLY-OWNED cab. This is the
+    /// single choke point both the local operator path and the inbound
+    /// peer `.command` handler funnel through: because it goes via
+    /// `mutateLocal`, a request for a cab this node doesn't own is
+    /// silently ignored (returns nil) -- a node never mutates a cab it
+    /// doesn't own, no matter who asked. On success the resulting state
+    /// is published to peers via `onLocalChange`.
+    @discardableResult
+    func applyControl(cabId: UUID, kind: CabCommandKind, floor: Int?) -> Elevator? {
+        mutateLocal(cabId) { e in
+            switch kind {
+            case .call:
+                if let floor { e.enqueue(floor: floor) }
+            case .open:
+                e.requestDoorsOpen()
+            case .close:
+                e.requestDoorsClose()
+            case .stop:
+                e.queue.removeAll()
+            }
+        }
+    }
+
     @discardableResult
     func mutateLocal(_ id: UUID, _ block: (inout Elevator) -> Void) -> Elevator? {
         guard let idx = elevators.firstIndex(where: { $0.id == id }) else { return nil }
