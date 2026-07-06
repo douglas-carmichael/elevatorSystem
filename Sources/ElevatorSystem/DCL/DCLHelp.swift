@@ -170,6 +170,11 @@ extension DCLEngine {
             s += "        DOOR_TEST        Door open/close + obstruction sensor test.\n"
             s += "        WEIGHT_CAL       Load-cell zero / span calibration.\n"
             s += "        HALL_LAMP_TEST   Cycle every hall-call lamp UP/DOWN.\n"
+            s += "      By default a test runs on the local node's cabs only.\n"
+            s += "      Add /NODE=<id> to pick a node: L (local) or a peer letter\n"
+            s += "      (A, B, ...) -- e.g. RUN WEIGHT_CAL/NODE=A.  A test always\n"
+            s += "      targets one node.  HALL_LAMP_TEST always drives the local\n"
+            s += "      landing fixtures.\n"
             s += "      Other images return %SYSTEM-F-NOPRIV.\n"
             return s
         case matches(t, "EXAMINE", min: 4):
@@ -591,6 +596,7 @@ extension DCLEngine {
             "EDIT FILE.TXT", "DIFFERENCES A.TXT B.TXT",
             "RUN PROG.EXE", "RUN BRAKE_TEST", "RUN DOOR_TEST",
             "RUN WEIGHT_CAL", "RUN HALL_LAMP_TEST",
+            "RUN WEIGHT_CAL/NODE=LOCAL", "RUN BRAKE_TEST/NODE=L",
             "ANALYZE/ERROR_LOG", "ANALYZE/AUDIT", "ANALYZE/IMAGE",
             "INITIALIZE DKA0:",
             "MOUNT DKA0:", "MOUNT MUA0: ELEV_BACKUP",

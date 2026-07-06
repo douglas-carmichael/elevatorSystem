@@ -679,6 +679,9 @@ enum Strings {
         add("diag.reading.noCab",          "(no cab)",                       "(aucune cabine)")
         add("diag.reading.noWorld",        "(no world)",                     "(aucun monde)")
         add("diag.weight.reading.records", "%d records",                     "%d entrées")
+        add("diag.lamp.localonly",
+            "%HALL_LAMP-I-LOCAL, hall-lamp test runs on the local landing fixtures only",
+            "%HALL_LAMP-I-LOCAL, le test des lanternes ne s'exécute que sur les paliers locaux")
 
         return t
     }

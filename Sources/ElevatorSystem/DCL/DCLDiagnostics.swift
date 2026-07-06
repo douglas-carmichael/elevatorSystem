@@ -120,16 +120,49 @@ extension DCLEngine {
         outRaw(s)
     }
 
+    // MARK: -- node scoping (RUN <image> /NODE=<letter>)
+
+    /// Resolve the `/NODE=` qualifier to the cabs a diagnostic should cover.
+    /// A diagnostic always targets a single node so its step list can never
+    /// overflow the fixed-height screen: nil (no qualifier) or "L"/"LOCAL"
+    /// means the local node; a remote letter (A/B/...) picks that one peer.
+    func diagnosticCabs(node: String?) -> [Elevator] {
+        guard let world else { return [] }
+        let all = world.elevators
+        guard let raw = node?.uppercased(), !raw.isEmpty else {
+            return all.filter { $0.ownerPeerId == world.localPeerId }
+        }
+        switch raw {
+        case "LOCAL", "L": return all.filter { $0.ownerPeerId == world.localPeerId }
+        default:           return all.filter { world.nodeLetter(for: $0).uppercased() == raw }
+        }
+    }
+
+    /// Validate a `/NODE=` value against the nodes actually present. Returns
+    /// a VMS-style error line for an unknown node, or nil when it's valid
+    /// (or absent).
+    func diagnosticNodeError(_ node: String?) -> String? {
+        guard let n = node, !n.isEmpty, let world else { return nil }
+        var valid = Set(world.elevators.map { world.nodeLetter(for: $0).uppercased() })
+        valid.insert("L")
+        valid.insert("LOCAL")
+        if !valid.contains(n.uppercased()) {
+            let list = valid.sorted().joined(separator: ", ")
+            return "%RUN-E-NONODE, unknown node \"\(n)\"; available: \(list)\n"
+        }
+        return nil
+    }
+
     // MARK: -- diagnostic step lists
 
-    func startBrakeTest() {
+    func startBrakeTest(cabs argCabs: [Elevator]? = nil) {
         let pass = tr("diag.status.pass")
         let fail = tr("diag.status.fail")
         let noCab = tr("diag.reading.noCab")
-        // Cover every cab on the group, local and remote. Brake state is
-        // read-only, so remote cabs (owned by peer nodes) test the same as
-        // local ones -- we just read the state the dispatcher already sees.
-        let cabsList = world?.elevators ?? []
+        // Brake state is read-only, so cabs on any node test the same -- we
+        // just read the state the dispatcher already sees. Scope is chosen
+        // by the caller (default: local node only).
+        let cabsList = argCabs ?? diagnosticCabs(node: nil)
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0.id) })
@@ -163,13 +196,13 @@ extension DCLEngine {
                          steps: steps)
     }
 
-    func startDoorTest() {
+    func startDoorTest(cabs argCabs: [Elevator]? = nil) {
         let pass = tr("diag.status.pass")
         let noCab = tr("diag.reading.noCab")
-        // Cover every cab on the group, local and remote. The door steps
-        // below actively command the door controller, which only the owning
-        // peer may do -- remote cabs are exercised as observation-only.
-        let cabsList = world?.elevators ?? []
+        // The door steps below actively command the door controller, which
+        // only the owning peer may do -- cabs on a remote node are exercised
+        // as observation-only. Scope is chosen by the caller (default: local).
+        let cabsList = argCabs ?? diagnosticCabs(node: nil)
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: Elevator] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0) })
@@ -233,13 +266,13 @@ extension DCLEngine {
                          steps: steps)
     }
 
-    func startWeightCal() {
+    func startWeightCal(cabs argCabs: [Elevator]? = nil) {
         let pass = tr("diag.status.pass")
         let ok   = tr("diag.status.ok")
         let noCab = tr("diag.reading.noCab")
-        // Cover every cab on the group, local and remote. The load-cell
-        // readings are read-only, so remote cabs test identically to local.
-        let cabsList = world?.elevators ?? []
+        // The load-cell readings are read-only, so cabs on any node test
+        // identically. Scope is chosen by the caller (default: local node).
+        let cabsList = argCabs ?? diagnosticCabs(node: nil)
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0.id) })

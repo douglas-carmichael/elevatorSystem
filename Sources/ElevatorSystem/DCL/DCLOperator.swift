@@ -131,14 +131,32 @@ extension DCLEngine {
             knownDiagnostic = false
         }
         if !knownDiagnostic { return noPriv("RUN \(target)") }
+
+        // Optional /NODE=<id> scoping. With no qualifier a diagnostic runs on
+        // the local node only (see diagnosticCabs); /NODE=A picks one peer.
+        // A test always targets a single node so it can't overflow the screen.
+        let hasNode = cmd.hasQualifier("NODE", min: 3)
+        let node = cmd.qualifierValue("NODE", min: 3)
+        if hasNode && (node?.isEmpty ?? true) {
+            return "%RUN-E-NOVAL, /NODE requires a value (L for local, or a node letter, e.g. /NODE=A)\n"
+        }
+        if let err = diagnosticNodeError(node) { return err }
+
         if dryRun {
-            return "%RUN-S-PROC_ID, would launch \(stripped) test utility (dry-run)\n"
+            let scope = node.map { " /NODE=\($0.uppercased())" } ?? ""
+            return "%RUN-S-PROC_ID, would launch \(stripped) test utility\(scope) (dry-run)\n"
         }
         switch stripped {
-        case "BRAKE_TEST":      startBrakeTest()
-        case "DOOR_TEST":       startDoorTest()
-        case "WEIGHT_CAL":      startWeightCal()
-        case "HALL_LAMP_TEST":  startHallLampTest()
+        case "BRAKE_TEST":      startBrakeTest(cabs: diagnosticCabs(node: node))
+        case "DOOR_TEST":       startDoorTest(cabs: diagnosticCabs(node: node))
+        case "WEIGHT_CAL":      startWeightCal(cabs: diagnosticCabs(node: node))
+        case "HALL_LAMP_TEST":
+            // Hall lamps are landing fixtures of the local building only; a
+            // remote/all scope still tests the local lanterns, with a note.
+            if let n = node, n.uppercased() != "L", n.uppercased() != "LOCAL" {
+                out(tr("diag.lamp.localonly") + "\n")
+            }
+            startHallLampTest()
         default: break
         }
         return ""

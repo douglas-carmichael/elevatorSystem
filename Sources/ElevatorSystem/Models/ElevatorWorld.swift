@@ -937,6 +937,13 @@ final class ElevatorWorld: ObservableObject {
         return String(UnicodeScalar(UInt32(UnicodeScalar("A").value) + UInt32(index))!)
     }
 
+    /// The node letter shown as a cab-label prefix: "L" for the local node,
+    /// "A"/"B"/... for remote peers (matching `displayLabel(for:)`). Used to
+    /// scope diagnostics to one node via `RUN <image> /NODE=<letter>`.
+    func nodeLetter(for elev: Elevator) -> String {
+        elev.ownerPeerId == localPeerId ? "L" : peerLetter(for: elev.ownerPeerId)
+    }
+
     func displayLabel(for elev: Elevator) -> String {
         if elev.ownerPeerId == localPeerId {
             return "L\(elev.label)"
