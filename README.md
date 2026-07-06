@@ -77,58 +77,58 @@ pymodbus, Node-RED, or a PLC configured as a Modbus TCP client — can
 connect to the running simulation and interact with elevator state in
 real time.
 
-Per-cabin registers use 8-register offsets (cabin 0 = addresses 0–7,
-cabin 1 = 8–15, etc.). System-wide registers begin at address 100.
+Per-cabin registers use 16-register offsets (cabin 0 = addresses 0–15,
+cabin 1 = 16–31, etc.). System-wide registers begin at address 1000.
 
 #### Input Registers — FC 04, read-only
 
 | Address | Description |
 |---|---|
-| 0..7 | Position × 10 |
-| 8..15 | Direction (0 = idle, 1 = up, 2 = down) |
-| 16..23 | Door state (0 = closed … 3 = closing) |
-| 24..31 | Queue depth |
-| 32..39 | Door progression × 100 |
-| 40..47 | Velocity × 100 (Int16, signed) |
-| 48..55 | Platform load (kg) |
-| 100 | Number of cabins |
-| 101 | Number of peers |
-| 102 | Building floors |
-| 103 | Telnet sessions |
-| 104 | Modbus clients |
-| 105 | Building mode (0 = normal, 1 = fire, 2 = stop) |
-| 106 | Recall floor |
-| 107 | Active alarms |
-| 108 | Max severity |
-| 109 | Dispatch mode (0 = collective, 1 = destination) |
-| 110 | Active landing calls |
+| 0..15 | Position × 10 |
+| 16..31 | Direction (0 = idle, 1 = up, 2 = down) |
+| 32..47 | Door state (0 = closed … 3 = closing) |
+| 48..63 | Queue depth |
+| 64..79 | Door progression × 100 |
+| 80..95 | Velocity × 100 (Int16, signed) |
+| 96..111 | Platform load (kg) |
+| 1000 | Number of cabins |
+| 1001 | Number of peers |
+| 1002 | Building floors |
+| 1003 | Telnet sessions |
+| 1004 | Modbus clients |
+| 1005 | Building mode (0 = normal, 1 = fire, 2 = stop) |
+| 1006 | Recall floor |
+| 1007 | Active alarms |
+| 1008 | Max severity |
+| 1009 | Dispatch mode (0 = collective, 1 = destination) |
+| 1010 | Active landing calls |
 
 #### Holding Registers — FC 03 read, FC 06 write
 
 | Address | Description |
 |---|---|
-| 0..7 | Profile (0 = PAX, 1 = FRT) |
-| 8..15 | Mode (0 = MAN, 1 = AUTO) |
-| 16..23 | Target floor — write to dispatch |
+| 0..15 | Profile (0 = PAX, 1 = FRT) |
+| 16..31 | Mode (0 = MAN, 1 = AUTO) |
+| 32..47 | Target floor — write to dispatch |
 
 #### Coils — FC 01 read, FC 05 write
 
 | Address | Description |
 |---|---|
-| 0..7 | Open doors (impulse) |
-| 8..15 | Close doors |
-| 16..23 | Emergency stop / cancel queue |
+| 0..15 | Open doors (impulse) |
+| 16..31 | Close doors |
+| 32..47 | Emergency stop / cancel queue |
 
 #### Discrete Inputs — FC 02, read-only
 
 | Address | Description |
 |---|---|
-| 0..7 | Cabin local |
-| 8..15 | Cabin in motion |
-| 16..23 | Doors open |
-| 24..31 | Parking brake engaged |
-| 32..39 | Door obstruction cell |
-| 40..47 | Overload (>110%) |
+| 0..15 | Cabin local |
+| 16..31 | Cabin in motion |
+| 32..47 | Doors open |
+| 48..63 | Parking brake engaged |
+| 64..79 | Door obstruction cell |
+| 80..95 | Overload (>110%) |
 
 ### Architecture
 
@@ -169,6 +169,30 @@ work. The Bonjour usage description and service type are set in
 `project.yml` under `NSLocalNetworkUsageDescription` and
 `NSBonjourServices`.
 
+### Cluster daemon (headless back-end)
+
+`ClusterDaemon/` is a separate, self-contained **SwiftPM package** — not part
+of the app's XcodeGen build — that runs headless as a cross-platform back-end
+on **macOS, Linux, and Windows**. It simulates one or more OpenVMS-style
+dispatcher *nodes*, each owning its own cluster of auto-driven cabs, and
+publishes them on the LAN over the same Bonjour peer protocol the app speaks.
+Run it next to the app and its cabs appear as `[REMOTE]` peers in the Group
+Dispatcher, animate in the Hoistway Synoptic 3D view, and list under
+`MONITOR CLUSTER` in the DCL terminal — so you can **demonstrate the
+multi-peer networking without a second machine**.
+
+The transport is pluggable: on macOS it uses Bonjour / Network.framework; on
+Linux and Windows a hand-rolled, dependency-free mDNS + BSD-socket stack
+speaks the byte-identical wire, so a daemon on a Linux box is discovered by
+the macOS app exactly like another Mac would be (Foundation only, no external
+dependencies).
+
+```bash
+cd ClusterDaemon && swift build && swift run elevator-clusterd --nodes 3 --cabs 2
+```
+
+See `ClusterDaemon/README.md` for all flags and demo recipes.
+
 ### Layout
 
 ```
@@ -186,6 +210,7 @@ Sources/ElevatorSystem/
   DCL/                                 OpenVMS DCL shell + MONITOR utility
   Modbus/                              Modbus TCP server (port 5020)
   Views/                               Retro theme, control panel, 3D scene, DCL terminal
+ClusterDaemon/                         Headless cluster-peer daemon (SwiftPM; macOS/Linux/Windows)
 ```
 
 ---
@@ -201,7 +226,7 @@ quelques ascenseurs autonomes pour peupler la scène.
 
 | Régulateur de groupe (VT320) | Terminal DCL | Synoptique de gaine (3D) |
 |:---:|:---:|:---:|
-| ![Régulateur de groupe](docs/dispatcher.png) | ![Terminal DCL](docs/dcl.png) | ![Synoptique de gaine](docs/synoptic.png) |
+| ![Régulateur de groupe](docs/dispatcher_fr.png) | ![Terminal DCL](docs/dcl_fr.png) | ![Synoptique de gaine](docs/synoptic_fr.png) |
 
 ### Prérequis
 
@@ -254,59 +279,59 @@ ModRSsim2, pymodbus, Node-RED ou un automate configuré en client
 Modbus TCP — peut se connecter à la simulation et interagir avec l'état
 des ascenseurs en temps réel.
 
-Les registres par cabine utilisent des décalages de 8 registres
-(cabine 0 = adresses 0–7, cabine 1 = 8–15, etc.). Les registres
-système commencent à l'adresse 100.
+Les registres par cabine utilisent des décalages de 16 registres
+(cabine 0 = adresses 0–15, cabine 1 = 16–31, etc.). Les registres
+système commencent à l'adresse 1000.
 
 #### Registres d'entrée — FC 04, lecture seule
 
 | Adresse | Description |
 |---|---|
-| 0..7 | Position × 10 |
-| 8..15 | Direction (0 = repos, 1 = montée, 2 = descente) |
-| 16..23 | État portes (0 = fermée … 3 = fermeture) |
-| 24..31 | Profondeur file |
-| 32..39 | Progression portes × 100 |
-| 40..47 | Vitesse × 100 (Int16, signé) |
-| 48..55 | Charge plateau (kg) |
-| 100 | Nombre de cabines |
-| 101 | Nombre de pairs |
-| 102 | Étages bâtiment |
-| 103 | Sessions telnet |
-| 104 | Clients modbus |
-| 105 | Mode bâtiment (0 = normal, 1 = feu, 2 = arrêt) |
-| 106 | Étage de rappel |
-| 107 | Alarmes actives |
-| 108 | Sévérité max |
-| 109 | Régulation (0 = collective, 1 = destination) |
-| 110 | Appels palier actifs |
+| 0..15 | Position × 10 |
+| 16..31 | Direction (0 = repos, 1 = montée, 2 = descente) |
+| 32..47 | État portes (0 = fermée … 3 = fermeture) |
+| 48..63 | Profondeur file |
+| 64..79 | Progression portes × 100 |
+| 80..95 | Vitesse × 100 (Int16, signé) |
+| 96..111 | Charge plateau (kg) |
+| 1000 | Nombre de cabines |
+| 1001 | Nombre de pairs |
+| 1002 | Étages bâtiment |
+| 1003 | Sessions telnet |
+| 1004 | Clients modbus |
+| 1005 | Mode bâtiment (0 = normal, 1 = feu, 2 = arrêt) |
+| 1006 | Étage de rappel |
+| 1007 | Alarmes actives |
+| 1008 | Sévérité max |
+| 1009 | Régulation (0 = collective, 1 = destination) |
+| 1010 | Appels palier actifs |
 
 #### Registres de maintien — FC 03 lecture, FC 06 écriture
 
 | Adresse | Description |
 |---|---|
-| 0..7 | Profil (0 = PAX, 1 = FRT) |
-| 8..15 | Mode (0 = MAN, 1 = AUTO) |
-| 16..23 | Étage cible — écrire pour appeler |
+| 0..15 | Profil (0 = PAX, 1 = FRT) |
+| 16..31 | Mode (0 = MAN, 1 = AUTO) |
+| 32..47 | Étage cible — écrire pour appeler |
 
 #### Bobines — FC 01 lecture, FC 05 écriture
 
 | Adresse | Description |
 |---|---|
-| 0..7 | Commande ouvrir portes (impulsion) |
-| 8..15 | Commande fermer portes |
-| 16..23 | Arrêt d'urgence / annuler file |
+| 0..15 | Commande ouvrir portes (impulsion) |
+| 16..31 | Commande fermer portes |
+| 32..47 | Arrêt d'urgence / annuler file |
 
 #### Entrées TOR — FC 02, lecture seule
 
 | Adresse | Description |
 |---|---|
-| 0..7 | Cabine locale |
-| 8..15 | Cabine en mouvement |
-| 16..23 | Portes ouvertes |
-| 24..31 | Frein de stationnement serré |
-| 32..39 | Cellule porte obstruée |
-| 40..47 | Cabine en surcharge (>110 %) |
+| 0..15 | Cabine locale |
+| 16..31 | Cabine en mouvement |
+| 32..47 | Portes ouvertes |
+| 48..63 | Frein de stationnement serré |
+| 64..79 | Cellule porte obstruée |
+| 80..95 | Cabine en surcharge (>110 %) |
 
 ### Architecture
 
@@ -349,6 +374,31 @@ découverte des pairs fonctionne. La description d'usage et le type de
 service Bonjour sont définis dans `project.yml` sous
 `NSLocalNetworkUsageDescription` et `NSBonjourServices`.
 
+### Démon de cluster (back-end headless)
+
+`ClusterDaemon/` est un **paquet SwiftPM** autonome et distinct — hors de la
+build XcodeGen de l'application — qui s'exécute en mode headless comme
+back-end multi-plateforme sur **macOS, Linux et Windows**. Il simule un ou
+plusieurs nœuds régulateurs de style OpenVMS, chacun possédant son propre
+cluster de cabines autonomes, et les publie sur le réseau local via le même
+protocole Bonjour que l'application. Lancé à côté de l'application, ses
+cabines apparaissent comme pairs `[REMOTE]` dans le Régulateur de groupe,
+s'animent dans la vue 3D Synoptique de gaine et sont listées sous
+`MONITOR CLUSTER` dans le terminal DCL — de quoi **démontrer le
+fonctionnement multi-pair sans seconde machine**.
+
+Le transport est enfichable : sur macOS il utilise Bonjour / Network.framework ;
+sur Linux et Windows, un moteur mDNS + sockets BSD écrit à la main et sans
+dépendance parle le même protocole au bit près, si bien qu'un démon sur une
+machine Linux est découvert par l'application macOS exactement comme le serait
+un autre Mac (Foundation uniquement, aucune dépendance externe).
+
+```bash
+cd ClusterDaemon && swift build && swift run elevator-clusterd --nodes 3 --cabs 2
+```
+
+Voir `ClusterDaemon/README.md` pour toutes les options et les exemples de démo.
+
 ### Structure
 
 ```
@@ -366,6 +416,7 @@ Sources/ElevatorSystem/
   DCL/                                 Shell DCL OpenVMS + utilitaire MONITOR
   Modbus/                              Serveur Modbus TCP (port 5020)
   Views/                               Thème rétro, panneau de contrôle, scène 3D, terminal DCL
+ClusterDaemon/                         Démon de cluster headless (SwiftPM ; macOS/Linux/Windows)
 ```
 
 ---

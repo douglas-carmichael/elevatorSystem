@@ -7,22 +7,27 @@ over the same Bonjour peer protocol the app speaks. Run it next to the app on
 a single Mac and its cabs appear in the app as remote peers, so you can
 **demonstrate the multi-peer networking without a second machine**.
 
+Un **démon pair de cluster** *headless* en Swift natif pour l'application
+macOS ElevatorSystem. Il simule un ou plusieurs *nœuds* régulateurs de style
+OpenVMS — chacun possédant son propre cluster de cabines autonomes — et les
+publie sur le réseau local via le même protocole pair Bonjour que
+l'application. Lancez-le à côté de l'application sur un seul Mac : ses cabines
+y apparaissent comme des pairs distants, ce qui permet de **démontrer le
+réseau multi-pair sans seconde machine**.
+
+English · [Français](#français)
+
+---
+
+## English
+
 It is **cross-platform** — builds and runs on **macOS, Linux, and Windows**.
 On macOS it uses Bonjour/Network.framework; on Linux and Windows it uses a
 hand-rolled mDNS + BSD-socket transport that speaks the identical wire, so a
 daemon on a Linux box on your LAN is discovered by the macOS app exactly like
 another Mac would be. Still zero external dependencies (Foundation only).
 
-Un démon *headless* en Swift natif qui simule un ou plusieurs nœuds
-régulateurs d'ascenseurs et les publie sur le réseau via le même protocole
-Bonjour que l'application ElevatorSystem. Multi-plateforme (macOS, Linux,
-Windows) : sur Linux/Windows, un moteur mDNS + sockets BSD écrit à la main
-parle le même protocole que Bonjour. Permet de démontrer le fonctionnement
-multi-pair sur une seule machine.
-
----
-
-## Build & run
+### Build & run
 
 This is a **self-contained SwiftPM package** with no external dependencies —
 separate from the app's XcodeGen build. Native `swift` mechanics only, on any
@@ -46,7 +51,7 @@ You can also drive it from the repo root without `cd`:
 swift run --package-path ClusterDaemon elevator-clusterd
 ```
 
-### Options
+#### Options
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -58,7 +63,7 @@ swift run --package-path ClusterDaemon elevator-clusterd
 | `-q, --quiet`    | off        | Suppress per-event logging (banner + heartbeat only). |
 | `-h, --help`     |            | Usage. |
 
-### Demo recipes
+#### Demo recipes
 
 ```bash
 # One extra dispatcher with a cluster of 4 cabs — simplest "add cabs" demo.
@@ -80,9 +85,7 @@ it sends a `bye` so the app drops the cabs cleanly.
 > each other. On macOS 14/15+ raw multicast is gated by the same control, so if
 > a *forced-socket* run (below) "sees no peers", check that grant first.
 
----
-
-## Platforms & transport
+### Platforms & transport
 
 | Platform | Discovery + transport | Host metrics |
 |----------|----------------------|--------------|
@@ -108,9 +111,7 @@ Windows: allow the binary through Defender Firewall for Private networks). Peers
 must share an L2 broadcast domain (mDNS is link-local; it won't cross a router or
 most VPNs). `--selftest` runs the wire codecs and exits — handy in CI.
 
----
-
-## How it fits the app
+### How it fits the app
 
 The daemon is wire-compatible with the app's peer protocol — it is just
 another node on the mesh, indistinguishable from a second Mac running the app:
@@ -131,7 +132,7 @@ another node on the mesh, indistinguishable from a second Mac running the app:
   app's own 60 Hz extrapolation of our cabs between snapshots (less traffic,
   slightly looser). The heartbeat prints the measured outbound rate.
 
-### Source layout
+#### Source layout
 
 | File | Role |
 |------|------|
@@ -155,7 +156,7 @@ another node on the mesh, indistinguishable from a second Mac running the app:
 | `CHostStatsFreeBSD` (C target) | Tiny C shim re-exposing `sysctl(3)` for the FreeBSD sampler — the Swift `Glibc` overlay omits `<sys/sysctl.h>` there. Stubs on every other OS. |
 | `CHostStatsWindows` (C target) | Tiny C shim re-exposing `EnumProcesses` / `GetProcessMemoryInfo` for the Windows sampler — the Swift `WinSDK` overlay omits those `<psapi.h>` calls. Stubs on every other OS. |
 
-### Keeping in sync with the app
+#### Keeping in sync with the app
 
 The wire types here are **hand-mirrored**, not cross-imported, so the daemon
 stays free of the app's SwiftUI/SceneKit/AppKit dependencies. If you change
@@ -175,11 +176,194 @@ TXT keys (`peerId`/`label`), or the "higher peerId dials" rule change in
 The `Elevator` decoder tolerates missing newer fields (`decodeIfPresent`), so a
 version skew degrades gracefully rather than dropping the peer.
 
----
-
-## Scope
+### Scope
 
 This is a **dispatch/visualization simulator**, like the app — not a safety
 controller. It models normal automatic dispatch only; per-node concerns that
 aren't carried on the peer protocol (SCADA alarms, Phase I/II fire modes, EPO,
 hall-call allocation, destination dispatch) are intentionally left to the app.
+
+---
+
+## Français
+
+Il est **multi-plateforme** — se compile et s'exécute sur **macOS, Linux et
+Windows**. Sur macOS il utilise Bonjour/Network.framework ; sur Linux et
+Windows il utilise un transport mDNS + sockets BSD écrit à la main qui parle
+exactement la même trame, si bien qu'un démon tournant sur une machine Linux
+de votre réseau local est découvert par l'application macOS exactement comme
+le serait un autre Mac. Toujours zéro dépendance externe (Foundation
+uniquement).
+
+### Compilation et lancement
+
+C'est un **paquet SwiftPM autonome** sans dépendance externe — distinct de la
+build XcodeGen de l'application. Uniquement des mécanismes `swift` natifs, sur
+chacune des trois plateformes :
+
+```bash
+cd ClusterDaemon
+swift build            # ou : swift build -c release
+swift run elevator-clusterd
+```
+
+Ou lancez directement le binaire compilé :
+
+```bash
+.build/debug/elevator-clusterd --nodes 3 --cabs 2
+```
+
+Vous pouvez aussi le piloter depuis la racine du dépôt sans `cd` :
+
+```bash
+swift run --package-path ClusterDaemon elevator-clusterd
+```
+
+#### Options
+
+| Drapeau | Défaut | Signification |
+|------|---------|---------|
+| `-n, --nodes N`  | `1`        | Nœuds pairs indépendants à publier (chacun est un nœud Bonjour distinct). |
+| `-c, --cabs N`   | `4`        | Cabines par nœud. |
+| `-l, --label S`  | `SIMNODE`  | Étiquette de nœud / préfixe du nom Bonjour (les exécutions multi-nœuds ajoutent `1`, `2`, …). |
+| `-f, --floors N` | `10`       | Étage le plus haut atteint par les cabines (`2…10` ; gardez-le ≤ au nombre d'étages de l'application). |
+| `-r, --rate N`   | `60`       | Diffusions `.state` par seconde (`1…60`). Le défaut correspond au tick de simulation à 60 Hz. |
+| `-q, --quiet`    | désactivé  | Supprime la journalisation par événement (bannière + *heartbeat* uniquement). |
+| `-h, --help`     |            | Aide. |
+
+#### Exemples de démonstration
+
+```bash
+# Un nœud régulateur supplémentaire avec un cluster de 4 cabines — la démo « ajouter des cabines » la plus simple.
+swift run elevator-clusterd
+
+# Un cluster de 3 nœuds (6 cabines). Le MONITOR CLUSTER de l'application liste alors le nœud
+# local plus SIMNODE1/2/3 — un cluster complet depuis un seul Mac.
+swift run elevator-clusterd --nodes 3 --cabs 2
+```
+
+Lancez ensuite l'application ElevatorSystem. En quelques secondes, les cabines
+du démon apparaissent dans le **Régulateur de groupe** (étiquetées
+`[REMOTE]`), s'animent dans la vue 3D **Synoptique de gaine**, et chaque nœud
+apparaît dans **`MONITOR CLUSTER`** dans le terminal DCL avec des chiffres
+CPU/mémoire en direct. `Ctrl-C` arrête le démon ; il envoie un `bye` pour que
+l'application retire proprement les cabines.
+
+> **Note au premier lancement :** macOS peut demander à votre terminal l'accès
+> au réseau local (le démon utilise Bonjour/mDNS). Autorisez-le, sinon
+> l'application et le démon ne se trouveront pas. Sur macOS 14/15+, le
+> multicast brut est soumis au même contrôle ; donc si une exécution en
+> *socket forcé* (ci-dessous) « ne voit aucun pair », vérifiez d'abord cette
+> autorisation.
+
+### Plateformes et transport
+
+| Plateforme | Découverte + transport | Métriques hôte |
+|----------|----------------------|--------------|
+| **macOS** | Bonjour / Network.framework | complètes (Mach + IOKit) : CPU, mémoire, taux de défauts de page et de disque, processus |
+| **Linux** | mDNS + sockets BSD faits main | complètes (`/proc` + `statvfs`) ; pas de compteur `lookups`, donc la ligne du taux de verrous affiche 0 |
+| **Windows** | mDNS + Winsock faits main | CPU / mémoire / nombre de processus / volumes réels ; les **taux** de défauts de page, de disque et de verrous sont **une synthèse légère documentée** (les vrais nécessitent PDH/ETW) |
+
+Les deux transports sont **identiques au bit près** — du JSON délimité par
+saut de ligne sur TCP, découvert via `_elevatorsys._tcp` sur le réseau local —
+de sorte que n'importe quel mélange d'application macOS, de démon macOS, de
+démon Linux et de démon Windows interopère sur un même maillage.
+
+**Forcez le transport socket sur macOS** (pour exercer le chemin de code
+Linux/Windows face à la vraie application) avec un drapeau ou une variable
+d'environnement :
+
+```bash
+swift run elevator-clusterd --socket           # ou :
+ELEVATORD_TRANSPORT=socket swift run elevator-clusterd
+```
+
+**Mises en garde.** Le moteur mDNS se lie à l'UDP `:5353` et rejoint
+`224.0.0.251` ; assurez-vous que le pare-feu de l'hôte autorise le mDNS
+(Linux : ouvrez 5353/udp, p. ex. `ufw allow 5353/udp` ; Windows : autorisez le
+binaire dans le pare-feu Defender pour les réseaux privés). Les pairs doivent
+partager un même domaine de diffusion L2 (le mDNS est link-local ; il ne
+traverse ni routeur ni la plupart des VPN). `--selftest` exécute les codecs de
+trame puis quitte — pratique en CI.
+
+### Comment il s'intègre à l'application
+
+Le démon est compatible au niveau trame avec le protocole pair de
+l'application — ce n'est qu'un nœud de plus sur le maillage, indiscernable
+d'un second Mac exécutant l'application :
+
+- **Découverte** — publie un service Bonjour `_elevatorsys._tcp` par nœud avec
+  un enregistrement TXT `peerId`/`label`, et recherche les autres. Le pair au
+  `peerId` le plus élevé initie la connexion, de sorte que chaque paire forme
+  exactement un lien TCP.
+- **Protocole** — des messages JSON délimités par saut de ligne `hello` /
+  `state` / `stats` / `bye` (`Wire.swift`), identiques au bit près à
+  `Sources/ElevatorSystem/Networking/Protocol.swift` de l'application.
+- **Propriété** — chaque cabine porte le `peerId` du nœud ; l'application les
+  affiche mais seul le démon les modifie (`canControl` reste false côté
+  application).
+- **Physique** — `CabSimulator.advance()` reproduit `ElevatorWorld.advance()`
+  de l'application (machine à états des portes + mouvement trapézoïdal). La
+  simulation tourne à 60 Hz et chaque nœud rediffuse l'état `.state` des
+  cabines à `--rate` Hz (60 par défaut, correspondant au tick). À 60 Hz,
+  l'application cale nos cabines de façon autoritaire à chacune de ses propres
+  trames ; des taux plus bas s'appuient sur sa propre extrapolation à 60 Hz de
+  nos cabines entre les instantanés (moins de trafic, un peu plus lâche). Le
+  *heartbeat* affiche le taux d'émission mesuré.
+
+#### Organisation des sources
+
+| Fichier | Rôle |
+|------|------|
+| `Model.swift`        | Constantes `Sim` + `Elevator`/`CabProfile`/`DoorState`/`Direction` — miroir compatible trame du modèle de l'application. |
+| `Wire.swift`         | `PeerOp`/`PeerMessage`/`HostSnapshot`/`WireCodec` — miroir du protocole pair de l'application. |
+| `CabSimulator.swift` | Cluster de cabines par nœud : régulation automatique + physique portes/mouvement. |
+| `ClusterNode.swift`  | Relie un simulateur à un lien pair ; possède les minuteurs de simulation/diffusion/stats, la fabrique de transport et le `Logger`. |
+| `main.swift`         | Analyse de la CLI, sélection du transport, signaux/arrêt multi-plateformes, boucle d'exécution. |
+| **Transport (partagé)** | |
+| `PeerSession.swift`  | Établissement de liaison / déduplication / diffusion agnostiques du transport via les protocoles `RawConn` + `PeerLink`. |
+| **Transport (Apple)** | |
+| `ApplePeerLink.swift`| Écouteur + navigateur Bonjour + tramage `NWConnection` (anciennement `PeerLink.swift`). `#if canImport(Network)`. |
+| **Transport (Linux / Windows)** | |
+| `SocketShim.swift`   | Primitives multi-plateformes sockets BSD / Winsock (handles, options, multicast, IP locale). |
+| `DNSMessage.swift`   | Codec de trame DNS/mDNS minimal (PTR/SRV/TXT/A, compression de noms) + auto-test. |
+| `MDNSEngine.swift`   | Répondeur + navigateur mDNS à l'échelle du processus sur un unique socket `:5353`, partagé par tous les nœuds. |
+| `SocketPeerLink.swift`| Écouteur/composeur TCP par nœud + threads d'écriture/lecture ; pilote `PeerSession`. |
+| **Métriques hôte** | |
+| `HostStats.swift`    | Façade : types de métriques, delta/taux/cache, `snapshot()` ; appelle les primitives propres à chaque OS. |
+| `HostStats+Darwin.swift` / `+Linux.swift` / `+FreeBSD.swift` / `+Windows.swift` | Échantillonnage brut propre à chaque OS (Mach+IOKit / `/proc` / sysctl+getmntinfo / Win32). |
+| `CHostStatsFreeBSD` (cible C) | Petit shim C réexposant `sysctl(3)` pour l'échantillonneur FreeBSD — l'overlay Swift `Glibc` y omet `<sys/sysctl.h>`. Stubs sur tout autre OS. |
+| `CHostStatsWindows` (cible C) | Petit shim C réexposant `EnumProcesses` / `GetProcessMemoryInfo` pour l'échantillonneur Windows — l'overlay Swift `WinSDK` omet ces appels `<psapi.h>`. Stubs sur tout autre OS. |
+
+#### Rester synchronisé avec l'application
+
+Les types de trame ici sont **recopiés à la main**, non importés, afin que le
+démon reste exempt des dépendances SwiftUI/SceneKit/AppKit de l'application. Si
+vous modifiez l'un de ces éléments dans l'application, mettez à jour le miroir
+ici pour qu'il corresponde :
+
+- `Sources/ElevatorSystem/Networking/Protocol.swift` → `Wire.swift`
+- `Sources/ElevatorSystem/Models/Elevator.swift` (surtout `CodingKeys`) → `Model.swift`
+- `Sources/ElevatorSystem/Models/Constants.swift` (`enum Sim`) → `Model.swift`
+- `Sources/ElevatorSystem/DCL/HostStats.swift` → `HostStats.swift` (+ les
+  `HostStats+*.swift` propres à chaque OS) ; seuls les sept champs de
+  `HostSnapshot` traversent la trame, mais l'API d'échantillonnage reflète le
+  `HostStats` de l'application par souci de parité.
+
+Le mDNS du démon est une implémentation partant de zéro, couvrant juste assez
+de DNS-SD pour que le `NWBrowser` de l'application le découvre et le résolve ;
+si le type de service Bonjour de l'application, les clés TXT (`peerId`/`label`)
+ou la règle « le peerId le plus élevé compose » changent dans
+`PeerNetwork.swift`, répercutez-les dans `MDNSEngine.swift` /
+`SocketPeerLink.swift`. Le décodeur `Elevator` tolère l'absence de champs plus
+récents (`decodeIfPresent`), de sorte qu'un décalage de version se dégrade
+proprement au lieu d'abandonner le pair.
+
+### Portée
+
+C'est un **simulateur de régulation/visualisation**, comme l'application — pas
+un contrôleur de sécurité. Il ne modélise que la régulation automatique
+normale ; les aspects propres à chaque nœud qui ne transitent pas par le
+protocole pair (alarmes SCADA, modes incendie Phase I/II, EPO, allocation des
+appels paliers, régulation à destination) sont volontairement laissés à
+l'application.
