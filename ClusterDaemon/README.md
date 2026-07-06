@@ -151,7 +151,9 @@ another node on the mesh, indistinguishable from a second Mac running the app:
 | `SocketPeerLink.swift`| Per-node TCP listener/dialer + writer/reader threads; drives `PeerSession`. |
 | **Host metrics** | |
 | `HostStats.swift`    | Façade: metric types, delta/rate/caching, `snapshot()`; calls per-OS primitives. |
-| `HostStats+Darwin.swift` / `+Linux.swift` / `+Windows.swift` | Per-OS raw sampling (Mach+IOKit / `/proc` / Win32). |
+| `HostStats+Darwin.swift` / `+Linux.swift` / `+FreeBSD.swift` / `+Windows.swift` | Per-OS raw sampling (Mach+IOKit / `/proc` / sysctl+getmntinfo / Win32). |
+| `CHostStatsFreeBSD` (C target) | Tiny C shim re-exposing `sysctl(3)` for the FreeBSD sampler — the Swift `Glibc` overlay omits `<sys/sysctl.h>` there. Stubs on every other OS. |
+| `CHostStatsWindows` (C target) | Tiny C shim re-exposing `EnumProcesses` / `GetProcessMemoryInfo` for the Windows sampler — the Swift `WinSDK` overlay omits those `<psapi.h>` calls. Stubs on every other OS. |
 
 ### Keeping in sync with the app
 

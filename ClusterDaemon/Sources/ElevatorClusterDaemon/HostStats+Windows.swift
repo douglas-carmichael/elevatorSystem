@@ -1,6 +1,7 @@
 #if os(Windows)
 import Foundation
 import WinSDK
+import CHostStatsWindows   // EnumProcesses / GetProcessMemoryInfo — see the shim's header
 
 // Windows host sampling via Win32, filling `HostStats`'s neutral primitives.
 //
@@ -14,7 +15,9 @@ import WinSDK
 //
 // Compiled only on Windows; the whole file is inside the guard. BOOL results are
 // discarded and the output structs checked instead, to stay agnostic about how
-// Win32 `BOOL` imports into Swift.
+// Win32 `BOOL` imports into Swift. EnumProcesses / GetProcessMemoryInfo aren't
+// reachable from `import WinSDK` (they're <psapi.h> macros → `K32*`), so they go
+// through the `CHostStatsWindows` C shim; every other call is straight Win32.
 extension HostStats {
 
     static func platformStaticInfo() -> StaticInfo {
@@ -84,18 +87,16 @@ extension HostStats {
     }
 
     static func platformProcessCount() -> Int {
-        var pids = [DWORD](repeating: 0, count: 4096)
-        var needed: DWORD = 0
-        let cb = DWORD(pids.count * MemoryLayout<DWORD>.size)
-        _ = pids.withUnsafeMutableBufferPointer { EnumProcesses($0.baseAddress, cb, &needed) }
-        return Int(needed) / MemoryLayout<DWORD>.size
+        let n = ehs_win_process_count()   // EnumProcesses, via the C shim
+        return n > 0 ? Int(n) : 0
     }
 
     static func platformWorkingSet() -> WorkingSet {
-        var pmc = PROCESS_MEMORY_COUNTERS()
-        pmc.cb = DWORD(MemoryLayout<PROCESS_MEMORY_COUNTERS>.size)
-        _ = GetProcessMemoryInfo(GetCurrentProcess(), &pmc, pmc.cb)
-        return WorkingSet(residentBytes: UInt64(pmc.WorkingSetSize), virtualBytes: UInt64(pmc.PagefileUsage))
+        var resident: UInt64 = 0, pagefile: UInt64 = 0   // GetProcessMemoryInfo, via the C shim
+        guard ehs_win_working_set(&resident, &pagefile) == 0 else {
+            return WorkingSet(residentBytes: 0, virtualBytes: 0)
+        }
+        return WorkingSet(residentBytes: resident, virtualBytes: pagefile)
     }
 
     static func platformVolumes() -> [VolumeInfo] {

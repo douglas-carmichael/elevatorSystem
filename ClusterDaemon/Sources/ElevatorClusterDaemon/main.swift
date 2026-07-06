@@ -65,6 +65,7 @@ struct Options {
     var nodeCount = 1
     var cabsPerNode = 4
     var label = "SIMNODE"
+    var names: [String] = []   // explicit per-node names; overrides the label+index scheme
     var floors = Sim.floorCount
     var rate = Int(Sim.tickHz)   // state broadcasts / sec; default = sim tick rate (60)
     var quiet = false
@@ -85,7 +86,11 @@ func printUsage() {
     OPTIONS:
       -n, --nodes   N   Independent peer nodes to publish (default 1)
       -c, --cabs    N   Cabs per node (default 4)
-      -l, --label   S   Node label / Bonjour name prefix (default "SIMNODE")
+      -l, --label   S   Node label / Bonjour name prefix for auto-named nodes
+                        (default "SIMNODE")
+      --name  LIST      Explicit per-node names (comma-separated, repeatable),
+                        e.g. OPERA,DAUPHINE. Overrides the label+index scheme;
+                        if --nodes is omitted, sets the node count.
       -f, --floors  N   Top floor cabs travel to (2…\(Sim.floorCount), default \(Sim.floorCount))
       -r, --rate    N   State broadcasts / sec (1…\(Int(Sim.tickHz)), default \(Int(Sim.tickHz)))
       -q, --quiet       Suppress per-event logging (banner + heartbeat only)
@@ -99,6 +104,7 @@ func printUsage() {
       swift run elevator-clusterd
       swift run elevator-clusterd --nodes 3 --cabs 2
       swift run elevator-clusterd -n 1 -c 6 -l DAUPHINE
+      swift run elevator-clusterd --name OPERA,DAUPHINE,NATION   # 3 named nodes
       swift run elevator-clusterd --rate 20        # lean on the app's extrapolation
     """)
 }
@@ -110,6 +116,7 @@ func die(_ message: String) -> Never {
 
 func parseOptions() -> Options {
     var options = Options()
+    var nodesSpecified = false
     var args = Array(CommandLine.arguments.dropFirst())
 
     func takeValue(for flag: String) -> String {
@@ -125,9 +132,15 @@ func parseOptions() -> Options {
     while !args.isEmpty {
         let arg = args.removeFirst()
         switch arg {
-        case "-n", "--nodes":  options.nodeCount = takeInt(for: arg)
+        case "-n", "--nodes":  options.nodeCount = takeInt(for: arg); nodesSpecified = true
         case "-c", "--cabs":   options.cabsPerNode = takeInt(for: arg)
         case "-l", "--label":  options.label = takeValue(for: arg)
+        case "--name", "--names":
+            let list = takeValue(for: arg)
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            options.names.append(contentsOf: list)
         case "-f", "--floors": options.floors = takeInt(for: arg)
         case "-r", "--rate":   options.rate = takeInt(for: arg)
         case "-q", "--quiet":  options.quiet = true
@@ -140,6 +153,10 @@ func parseOptions() -> Options {
         }
     }
 
+    // Names given without an explicit --nodes imply one node per name.
+    if !nodesSpecified && !options.names.isEmpty {
+        options.nodeCount = options.names.count
+    }
     options.nodeCount = max(1, options.nodeCount)
     options.cabsPerNode = max(1, options.cabsPerNode)
     options.floors = max(2, min(Sim.floorCount, options.floors))
@@ -172,9 +189,15 @@ if discovery != nil { Net.initialize() }   // WSAStartup on Windows; ignore SIGP
 let transportName = discovery == nil ? "Bonjour/Network.framework" : "mDNS + BSD sockets"
 
 let nodes: [ClusterNode] = (0..<options.nodeCount).map { index in
-    // With a single node keep the bare label; multiple nodes get a 1-based
-    // suffix so they show up as distinct peers (SIMNODE1, SIMNODE2, …).
-    let nodeLabel = options.nodeCount == 1 ? options.label : "\(options.label)\(index + 1)"
+    // An explicit --name wins; otherwise fall back to the label scheme — a
+    // single node keeps the bare label, multiple nodes get a 1-based suffix
+    // so they show up as distinct peers (SIMNODE1, SIMNODE2, …).
+    let nodeLabel: String
+    if index < options.names.count {
+        nodeLabel = options.names[index]
+    } else {
+        nodeLabel = options.nodeCount == 1 ? options.label : "\(options.label)\(index + 1)"
+    }
     return ClusterNode(label: nodeLabel, cabCount: options.cabsPerNode, floors: options.floors,
                        broadcastHz: options.rate, queue: queue, logger: logger, discovery: discovery)
 }
@@ -185,8 +208,9 @@ logger.raw("""
    nodes: \(options.nodeCount)   cabs/node: \(options.cabsPerNode)   floors: 1…\(options.floors)
    sim tick: \(Int(Sim.tickHz)) Hz   state broadcast: \(options.rate) Hz
    service: \(Sim.bonjourServiceType)   transport: \(transportName)
-   Launch the ElevatorSystem app (this Mac or another on the LAN)
-   to see these cabs appear as remote peers. Ctrl-C to stop.
+   Launch the ElevatorSystem app on a Mac on the LAN — this host,
+   if it is a Mac, or another — to see these cabs appear as remote
+   peers. Ctrl-C to stop.
 ==============================================================
 """)
 

@@ -1,4 +1,6 @@
-#if canImport(Glibc) || canImport(Musl)
+// FreeBSD also imports `Glibc`, but has no /proc — it has its own file, so it's
+// excluded here to keep exactly one HostStats sampler compiled per platform.
+#if (canImport(Glibc) || canImport(Musl)) && !os(FreeBSD)
 import Foundation
 #if canImport(Glibc)
 import Glibc

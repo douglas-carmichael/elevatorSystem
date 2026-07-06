@@ -409,6 +409,8 @@ enum Net {
     static func shutdownBoth(_ fd: SocketFD) {
         #if os(Windows)
         _ = WinSDK.shutdown(fd, 2)   // SD_BOTH == 2 (macro may not import)
+        #elseif os(FreeBSD)
+        _ = Glibc.shutdown(fd, 2)    // SHUT_RDWR == 2; imports as an enum here, not Int32
         #elseif canImport(Darwin)
         _ = Darwin.shutdown(fd, Int32(SHUT_RDWR))
         #elseif canImport(Glibc)

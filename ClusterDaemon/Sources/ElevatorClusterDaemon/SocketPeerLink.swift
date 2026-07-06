@@ -113,8 +113,8 @@ final class SocketPeerLink: PeerLink {
         let t = Thread { [weak self] in
             let fd = Net.makeTCP()
             let ok = isValidSocket(fd) && Net.connect(fd, ip: ip, port: port)
-            self?.queue.async {
-                guard let self else { Net.closeFD(fd); return }
+            guard let self else { Net.closeFD(fd); return }
+            self.queue.async {
                 self.dialing.remove(pid)
                 guard ok, self.running, !self.session.hasPeer(pid) else { Net.closeFD(fd); return }
                 self.session.adopt(SocketConn(fd: fd, queue: self.queue))

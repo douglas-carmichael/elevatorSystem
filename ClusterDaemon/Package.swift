@@ -27,8 +27,21 @@ let package = Package(
         .executable(name: "elevator-clusterd", targets: ["ElevatorClusterDaemon"])
     ],
     targets: [
+        // C shim exposing FreeBSD's sysctl(3), which the Swift Glibc overlay
+        // omits there (see HostStats+FreeBSD.swift). Stubs on every other OS.
+        .target(
+            name: "CHostStatsFreeBSD",
+            path: "Sources/CHostStatsFreeBSD"
+        ),
+        // C shim exposing the two PSAPI calls the Swift WinSDK overlay omits
+        // (EnumProcesses / GetProcessMemoryInfo). Stubs on every other OS.
+        .target(
+            name: "CHostStatsWindows",
+            path: "Sources/CHostStatsWindows"
+        ),
         .executableTarget(
             name: "ElevatorClusterDaemon",
+            dependencies: ["CHostStatsFreeBSD", "CHostStatsWindows"],
             path: "Sources/ElevatorClusterDaemon",
             linkerSettings: [
                 // Winsock (sockets) + PSAPI (EnumProcesses / GetProcessMemoryInfo).
