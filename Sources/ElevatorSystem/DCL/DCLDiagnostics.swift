@@ -76,13 +76,13 @@ extension DCLEngine {
             let reading: String
             let status: String
             if i < testResults.count {
-                reading = testResults[i].reading.padding(toLength: 14, withPad: " ", startingAt: 0)
+                reading = testResults[i].reading.padding(toLength: 18, withPad: " ", startingAt: 0)
                 status  = testResults[i].status
             } else if i == testCurrent && !complete {
-                reading = "....".padding(toLength: 14, withPad: " ", startingAt: 0)
+                reading = "....".padding(toLength: 18, withPad: " ", startingAt: 0)
                 status  = runningWord
             } else {
-                reading = "".padding(toLength: 14, withPad: " ", startingAt: 0)
+                reading = "".padding(toLength: 18, withPad: " ", startingAt: 0)
                 status  = queuedWord
             }
             rows.append(boxLine("  " + label + reading + " " + status))
