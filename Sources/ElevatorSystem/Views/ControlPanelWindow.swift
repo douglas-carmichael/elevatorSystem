@@ -314,7 +314,7 @@ private struct SCADAAlarmPanel: View {
                     RetroButton(language.t("alarm.ack.all"), enabled: world.unacknowledgedAlarmCount > 0) {
                         _ = world.acknowledgeAllAlarms()
                     }
-                    RetroButton(language.t("alarm.clear.all"), enabled: !world.activeAlarms.isEmpty) {
+                    RetroButton(language.t("alarm.clear.all"), enabled: world.hasClearableAlarms) {
                         _ = world.clearAllActiveAlarms()
                     }
                 }
@@ -324,8 +324,8 @@ private struct SCADAAlarmPanel: View {
                     failureButton("BRAKE", source: "CAB", point: "BRAKE", severity: .critical, messageKey: "alarm.msg.brake")
                     failureButton("NET", source: "NET", point: "PEER_LINK", severity: .major, messageKey: "alarm.msg.peerlink")
                     failureButton("PWR", source: "PWR", point: "MAINS", severity: .critical, messageKey: "alarm.msg.mains")
-                    RetroButton(language.t("alarm.clear.ack"), enabled: hasAcknowledgedActive) {
-                        clearAcknowledgedActive()
+                    RetroButton(language.t("alarm.clear.ack"), enabled: world.hasClearableAcknowledgedAlarms) {
+                        _ = world.clearAcknowledgedActiveAlarms()
                     }
                 }
                 alarmTable
@@ -479,15 +479,6 @@ private struct SCADAAlarmPanel: View {
         }
     }
 
-    private var hasAcknowledgedActive: Bool {
-        world.activeAlarms.contains { $0.isAcknowledged }
-    }
-
-    private func clearAcknowledgedActive() {
-        for alarm in world.activeAlarms where alarm.isAcknowledged {
-            _ = world.clearAlarm(sequence: alarm.sequence)
-        }
-    }
 }
 
 private struct AlarmRow: View {
