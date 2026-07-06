@@ -1,11 +1,11 @@
 # ElevatorSystem
 
-A standalone native macOS / SwiftUI elevator simulator. Retro VT320 /
+A native macOS / SwiftUI elevator simulator. Retro VT320 /
 OpenVMS-styled 2D controls in one window, a SceneKit 3D shaft view in
 another, and an OpenVMS DCL terminal in a third. Bilingual (English /
 French) with runtime language switching.
 
-Un simulateur d'ascenseur natif macOS / SwiftUI autonome. Une interface
+Un simulateur d'ascenseur natif macOS / SwiftUI. Une interface
 rétro VT320 / OpenVMS dans une fenêtre, une vue 3D SceneKit du puits dans
 une autre, et un terminal DCL OpenVMS dans une troisième. Bilingue
 (anglais / français) avec changement de langue en temps réel.
