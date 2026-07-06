@@ -14,3 +14,6 @@ build/
 
 ## Build / session logs
 swift-session.log
+
+## Claude Code (local only)
+CLAUDE.md
