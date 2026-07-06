@@ -121,8 +121,8 @@ enum Strings {
         add("help.k.mode",          "Toggle AUTO / MANUAL on focused cab", "Basculer AUTO / MANUEL sur la cabine focalisée")
         add("help.k.modbus",        "Show / hide Modbus register map",     "Afficher / masquer le plan des registres Modbus")
         add("modbus.legend.title",  "MODBUS REGISTER MAP",                 "PLAN DES REGISTRES MODBUS")
-        add("modbus.legend.endpoint","Endpoint:  127.0.0.1:5020   Unit ID 1   -- 8 cabs supported",
-                                     "Point d'accès :  127.0.0.1:5020   Unit ID 1   -- 8 cabines")
+        add("modbus.legend.endpoint","Endpoint:  127.0.0.1:5020   Unit ID 1   -- 16 cab slots (local + remote)",
+                                     "Point d'accès :  127.0.0.1:5020   Unit ID 1   -- 16 empl. cabine (locales + distantes)")
         add("modbus.legend.ir",     "INPUT REGISTERS  (FC 04, read-only)",
                                     "REGISTRES D'ENTRÉE  (FC 04, lecture seule)")
         add("modbus.legend.hr",     "HOLDING REGISTERS  (FC 03 read, FC 06 write)",
@@ -143,18 +143,18 @@ enum Strings {
                                      "progression portes %")
         add("modbus.reg.velocity",   "velocity × 100 (signed Int16)",
                                      "vitesse × 100 (Int16 signé)")
-        add("modbus.reg.cabcount",   "cab count   /  101 peer count",
-                                     "nb cabines   /  101 nb pairs")
+        add("modbus.reg.cabcount",   "cab count   /  1001 peer count",
+                                     "nb cabines   /  1001 nb pairs")
         add("modbus.reg.bldgflrs",   "building floors",
                                      "étages bâtiment")
-        add("modbus.reg.telnetmb",   "telnet sessions  /  104 modbus clients",
-                                     "sessions telnet  /  104 clients modbus")
+        add("modbus.reg.telnetmb",   "telnet sessions  /  1004 modbus clients",
+                                     "sessions telnet  /  1004 clients modbus")
         add("modbus.reg.bldgmode",   "building mode  0=norm 1=fire 2=epo",
                                      "mode bâtiment  0=norm 1=feu 2=arr")
         add("modbus.reg.recallflr",  "recall floor",
                                      "étage de rappel")
-        add("modbus.reg.alarms",     "active alarms  /  108 highest severity",
-                                     "alarmes actives  /  108 sévérité max")
+        add("modbus.reg.alarms",     "active alarms  /  1008 highest severity",
+                                     "alarmes actives  /  1008 sévérité max")
         add("modbus.reg.dispatch",   "dispatch  0=collective 1=destination",
                                      "régulation  0=collective 1=destination")
         add("modbus.reg.profile",    "profile  0=PAX  1=FRT",

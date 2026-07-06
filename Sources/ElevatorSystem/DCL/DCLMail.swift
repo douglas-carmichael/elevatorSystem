@@ -226,8 +226,17 @@ extension DCLEngine {
 
     func mailDelete(_ rest: String) -> String {
         guard !mailbox.isEmpty else { return "%MAIL-E-NOMSGS, no messages\n" }
+        let arg = rest.trimmingCharacters(in: .whitespaces)
+        // DELETE ALL empties the whole folder in one step.
+        if arg.uppercased() == "ALL" {
+            let count = mailbox.count
+            mailbox.removeAll()
+            mailCurrentId = nil
+            persistMailbox()
+            return "%MAIL-I-DELETED, \(count) message\(count == 1 ? "" : "s") deleted\n"
+        }
         let idx: Int
-        if let n = Int(rest.trimmingCharacters(in: .whitespaces)) {
+        if let n = Int(arg) {
             guard let i = mailIndex(ofId: n) else {
                 return "%MAIL-E-NOTEXIST, no such message: \(n)\n"
             }
@@ -420,6 +429,7 @@ extension DCLEngine {
         s += "    REPLY                Reply to the current message.\n"
         s += "    FORWARD [addr]       Forward the current message.\n"
         s += "    DELETE [n]           Delete message n (or the current message).\n"
+        s += "    DELETE ALL           Delete every message in the folder.\n"
         s += "    EXTRACT file         Write the current message to a file.\n"
         s += "    PRINT [n]            Queue a message to SYS$PRINT.\n"
         s += "    EXIT / QUIT          Leave MAIL and return to DCL.\n"

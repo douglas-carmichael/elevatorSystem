@@ -126,7 +126,10 @@ extension DCLEngine {
         let pass = tr("diag.status.pass")
         let fail = tr("diag.status.fail")
         let noCab = tr("diag.reading.noCab")
-        let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
+        // Cover every cab on the group, local and remote. Brake state is
+        // read-only, so remote cabs (owned by peer nodes) test the same as
+        // local ones -- we just read the state the dispatcher already sees.
+        let cabsList = world?.elevators ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0.id) })
@@ -163,7 +166,10 @@ extension DCLEngine {
     func startDoorTest() {
         let pass = tr("diag.status.pass")
         let noCab = tr("diag.reading.noCab")
-        let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
+        // Cover every cab on the group, local and remote. The door steps
+        // below actively command the door controller, which only the owning
+        // peer may do -- remote cabs are exercised as observation-only.
+        let cabsList = world?.elevators ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: Elevator] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0) })
@@ -178,7 +184,8 @@ extension DCLEngine {
                       let cab = cabsBySortedLabel[label],
                       let world = self.world
                 else { return (noCab, pass) }
-                let triggered = cab.doors == .closed && abs(cab.velocity) < 0.05
+                let triggered = world.canControl(cab)
+                    && cab.doors == .closed && abs(cab.velocity) < 0.05
                 if triggered {
                     _ = world.mutateLocal(cab.id) { e in
                         e.doors = .opening
@@ -205,6 +212,11 @@ extension DCLEngine {
                       let world = self.world else {
                     return (noCab, pass)
                 }
+                // Only the owning peer may trip the curtain; remote cabs are
+                // observed with the curtain left armed.
+                guard world.canControl(cab) else {
+                    return (tr("diag.door.reading.armed"), pass)
+                }
                 let canExercise = cab.doors == .open || cab.doors == .closing
                 _ = world.mutateLocal(cab.id) { e in e.doorObstructed = true }
                 // Hold the trip long enough for the dispatcher's next
@@ -225,7 +237,9 @@ extension DCLEngine {
         let pass = tr("diag.status.pass")
         let ok   = tr("diag.status.ok")
         let noCab = tr("diag.reading.noCab")
-        let cabsList = world?.elevators.filter { $0.ownerPeerId == world?.localPeerId } ?? []
+        // Cover every cab on the group, local and remote. The load-cell
+        // readings are read-only, so remote cabs test identically to local.
+        let cabsList = world?.elevators ?? []
         let cabs = cabsList.map { world?.displayLabel(for: $0) ?? $0.label }.sorted()
         let cabsBySortedLabel: [String: UUID] = Dictionary(uniqueKeysWithValues:
             cabsList.map { (world?.displayLabel(for: $0) ?? $0.label, $0.id) })

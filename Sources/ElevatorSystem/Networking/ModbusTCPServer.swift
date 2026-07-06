@@ -13,51 +13,51 @@ import Network
 /// non-privileged alternative every industrial-automation tool
 /// supports via `-p 5020`.
 ///
-/// Register map (8 cabs supported, 0-indexed Modbus addresses). Cab
+/// Register map (16 cabs supported, 0-indexed Modbus addresses). Cab
 /// indices follow the Group Dispatcher's sort order (locally-owned cabs
 /// first, then remote peers' cabs). Control writes (door coils, STOP,
 /// target-floor register) work on BOTH: a write to a remote-owned cab is
 /// forwarded to its owning node over the peer link, exactly like the
 /// on-screen buttons. Profile and mode remain owner-only (a write to a
-/// remote cab there is a no-op). DI 0..7 report which cabs are local.
+/// remote cab there is a no-op). DI 0..15 report which cabs are local.
 ///
 ///   Coils (single-bit, R/W) -- FC 01 read, FC 05 write:
-///     0..7    Cab[0..7]  Door OPEN command
-///     8..15   Cab[0..7]  Door CLOSE command
-///     16..23  Cab[0..7]  STOP / cancel queue
+///     0..15    Cab[0..15]  Door OPEN command
+///     16..31   Cab[0..15]  Door CLOSE command
+///     32..47   Cab[0..15]  STOP / cancel queue
 ///
 ///   Discrete inputs (single-bit, RO) -- FC 02:
-///     0..7    Cab[0..7]  is locally owned
-///     8..15   Cab[0..7]  is moving  (direction != idle)
-///     16..23  Cab[0..7]  doors open (state == open)
-///     24..31  Cab[0..7]  holding brake engaged
-///     32..39  Cab[0..7]  door light-curtain obstructed
-///     40..47  Cab[0..7]  platform overload  (load > 110% rated)
+///     0..15    Cab[0..15]  is locally owned
+///     16..31   Cab[0..15]  is moving  (direction != idle)
+///     32..47   Cab[0..15]  doors open (state == open)
+///     48..63   Cab[0..15]  holding brake engaged
+///     64..79   Cab[0..15]  door light-curtain obstructed
+///     80..95   Cab[0..15]  platform overload  (load > 110% rated)
 ///
 ///   Holding registers (16-bit, R/W) -- FC 03 read, FC 06 write:
-///     0..7    Cab[0..7]  Profile      (0 = PAX,    1 = Freight)
-///     8..15   Cab[0..7]  Mode         (0 = Manual, 1 = Auto)
-///     16..23  Cab[0..7]  Target floor (write to enqueue a CALL)
+///     0..15    Cab[0..15]  Profile      (0 = PAX,    1 = Freight)
+///     16..31   Cab[0..15]  Mode         (0 = Manual, 1 = Auto)
+///     32..47   Cab[0..15]  Target floor (write to enqueue a CALL)
 ///
 ///   Input registers (16-bit, RO) -- FC 04:
-///     0..7    Cab[0..7]  Position x10 (floor 3.5 = 35)
-///     8..15   Cab[0..7]  Direction    (0=idle, 1=up, 2=down)
-///     16..23  Cab[0..7]  Door state   (0=closed, 1=opening, 2=open, 3=closing)
-///     24..31  Cab[0..7]  Queue depth
-///     32..39  Cab[0..7]  Door progress (0..100 percent)
-///     40..47  Cab[0..7]  Cab velocity x100 (signed Int16)
-///     48..55  Cab[0..7]  Platform load (kg)
-///     100     Number of cabs registered
-///     101     Number of remote peers connected
-///     102     Building floor count (top floor)
-///     103     Number of telnet sessions
-///     104     Number of Modbus clients connected
-///     105     Building safety mode  (0=normal, 1=fire, 2=EPO)
-///     106     Recall floor
-///     107     Active SCADA alarm count
-///     108     Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
-///     109     Dispatch mode (0=collective, 1=destination)
-///     110     Active hall-call count
+///     0..15    Cab[0..15]  Position x10 (floor 3.5 = 35)
+///     16..31   Cab[0..15]  Direction    (0=idle, 1=up, 2=down)
+///     32..47   Cab[0..15]  Door state   (0=closed, 1=opening, 2=open, 3=closing)
+///     48..63   Cab[0..15]  Queue depth
+///     64..79   Cab[0..15]  Door progress (0..100 percent)
+///     80..95   Cab[0..15]  Cab velocity x100 (signed Int16)
+///     96..111  Cab[0..15]  Platform load (kg)
+///     1000    Number of cabs registered
+///     1001    Number of remote peers connected
+///     1002    Building floor count (top floor)
+///     1003    Number of telnet sessions
+///     1004    Number of Modbus clients connected
+///     1005    Building safety mode  (0=normal, 1=fire, 2=EPO)
+///     1006    Recall floor
+///     1007    Active SCADA alarm count
+///     1008    Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
+///     1009    Dispatch mode (0=collective, 1=destination)
+///     1010    Active hall-call count
 ///
 /// Function codes accepted: FC 01/02/03/04/05/06/0F/10. Anything else
 /// returns exception 0x01 (illegal function). Requests for any unit-id
@@ -82,7 +82,18 @@ final class ModbusTCPServer: ObservableObject {
     }
 
     static let defaultPort: UInt16 = 5020
-    static let maxCabs: Int = 8
+    static let maxCabs: Int = 16
+    /// Number of per-cab input-register fields (position, direction, door
+    /// state, queue depth, door progress, velocity, load). The cab-indexed
+    /// IR block therefore spans `0 ..< irCabFieldCount * maxCabs`; the
+    /// building-wide scalar registers live above it at `scalarBase`.
+    static let irCabFieldCount: Int = 7
+    /// First address of the building-wide scalar input registers. Placed
+    /// at a round 1000, well clear of the cab-indexed block
+    /// (`irCabFieldCount * maxCabs = 112`), so the cab map has ample
+    /// headroom to grow (to ~60 cabs) before it could reach the status
+    /// registers.
+    static let scalarBase: Int = 1000
     /// Modbus slave address of this dispatcher. Convention on TCP is
     /// to address a single device as unit-id 1; clients targeting any
     /// other unit-id (other than the broadcast id 0) get an exception
@@ -451,8 +462,8 @@ final class ModbusClient {
     }
 
     private func readCoil(at address: UInt16) -> Bool {
-        let group = Int(address) / 8
-        let cabIdx = Int(address) % 8
+        let group = Int(address) / ModbusTCPServer.maxCabs
+        let cabIdx = Int(address) % ModbusTCPServer.maxCabs
         guard let c = cab(at: cabIdx) else { return false }
         switch group {
         case 0:                                     // door OPEN command (pending?)
@@ -468,8 +479,8 @@ final class ModbusClient {
 
     private func writeCoil(at address: UInt16, on: Bool) {
         guard on else { return }                    // pulse-on commands only
-        let group = Int(address) / 8
-        let cabIdx = Int(address) % 8
+        let group = Int(address) / ModbusTCPServer.maxCabs
+        let cabIdx = Int(address) % ModbusTCPServer.maxCabs
         guard let c = cab(at: cabIdx) else { return }
         // Route through PeerNetwork.control so a coil written against a
         // remote-owned cab is forwarded to its owning node (identical to
@@ -487,8 +498,8 @@ final class ModbusClient {
     }
 
     private func readDiscreteInput(at address: UInt16) -> Bool {
-        let group = Int(address) / 8
-        let cabIdx = Int(address) % 8
+        let group = Int(address) / ModbusTCPServer.maxCabs
+        let cabIdx = Int(address) % ModbusTCPServer.maxCabs
         guard let c = cab(at: cabIdx) else { return false }
         switch group {
         case 0: return world?.canControl(c) ?? false
@@ -502,8 +513,8 @@ final class ModbusClient {
     }
 
     private func readHoldingRegister(at address: UInt16) -> UInt16 {
-        let group = Int(address) / 8
-        let cabIdx = Int(address) % 8
+        let group = Int(address) / ModbusTCPServer.maxCabs
+        let cabIdx = Int(address) % ModbusTCPServer.maxCabs
         guard let c = cab(at: cabIdx) else { return 0 }
         switch group {
         case 0: return c.profile == .freight ? 1 : 0
@@ -514,8 +525,8 @@ final class ModbusClient {
     }
 
     private func writeHoldingRegister(at address: UInt16, value: UInt16) {
-        let group = Int(address) / 8
-        let cabIdx = Int(address) % 8
+        let group = Int(address) / ModbusTCPServer.maxCabs
+        let cabIdx = Int(address) % ModbusTCPServer.maxCabs
         guard let c = cab(at: cabIdx), let world else { return }
         switch group {
         case 0:                                     // profile
@@ -539,9 +550,9 @@ final class ModbusClient {
     }
 
     private func readInputRegister(at address: UInt16) -> UInt16 {
-        if address < 40 {
-            let group = Int(address) / 8
-            let cabIdx = Int(address) % 8
+        if Int(address) < ModbusTCPServer.irCabFieldCount * ModbusTCPServer.maxCabs {
+            let group = Int(address) / ModbusTCPServer.maxCabs
+            let cabIdx = Int(address) % ModbusTCPServer.maxCabs
             guard let c = cab(at: cabIdx) else { return 0 }
             switch group {
             case 0:                                 // position x10
@@ -573,31 +584,33 @@ final class ModbusClient {
                 return 0
             }
         }
-        switch address {
-        case 100: return UInt16(world?.elevators.count ?? 0)
-        case 101: return UInt16(network?.peers.count ?? 0)
-        case 102: return UInt16(Sim.lastFloor)
-        case 103: return UInt16(telnet?.sessionCount ?? 0)
-        case 104: return UInt16(modbusServer?.clientCount ?? 0)
-        case 105:                                   // Building mode
+        // Building-wide scalar registers, offset from `scalarBase` (200) so
+        // they always clear the cab-indexed block regardless of maxCabs.
+        switch Int(address) - ModbusTCPServer.scalarBase {
+        case 0: return UInt16(world?.elevators.count ?? 0)
+        case 1: return UInt16(network?.peers.count ?? 0)
+        case 2: return UInt16(Sim.lastFloor)
+        case 3: return UInt16(telnet?.sessionCount ?? 0)
+        case 4: return UInt16(modbusServer?.clientCount ?? 0)
+        case 5:                                     // Building mode
             switch world?.buildingMode {
             case .fireRecall:     return 1
             case .emergencyPower: return 2
             default:              return 0
             }
-        case 106: return UInt16(world?.recallFloor ?? Sim.firstFloor)
-        case 107:                                   // Active alarm count
+        case 6: return UInt16(world?.recallFloor ?? Sim.firstFloor)
+        case 7:                                     // Active alarm count
             return UInt16(min(0xFFFF, world?.activeAlarms.count ?? 0))
-        case 109:                                   // Dispatch mode
+        case 9:                                     // Dispatch mode
             return world?.dispatchMode == .destination ? 1 : 0
-        case 108:                                   // Highest active severity
+        case 8:                                     // Highest active severity
             // 0 = no active alarms, 1..4 = Advisory / Minor / Major /
             // Critical. Lets a PLC HMI light a coloured beacon
             // straight from one register read instead of pulling the
             // whole alarm log over Modbus.
             guard let s = world?.highestActiveSeverity else { return 0 }
             return UInt16(s.rawValue + 1)
-        case 110: return UInt16(min(0xFFFF, world?.hallCalls.count ?? 0))
+        case 10: return UInt16(min(0xFFFF, world?.hallCalls.count ?? 0))
         default:  return 0
         }
     }
