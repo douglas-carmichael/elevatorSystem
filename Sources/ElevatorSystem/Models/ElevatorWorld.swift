@@ -124,9 +124,20 @@ struct SCADAAlarm: Identifiable, Codable, Hashable {
     let point: String
     let severity: AlarmSeverity
     let message: String
+    /// True when the alarm is backed by a live field condition that the
+    /// tick sampler auto-manages (OVERLOAD, DOOR_OPEN, SAFETY_MODE, ...).
+    /// Such alarms return to normal on their own when the condition
+    /// clears and are NOT operator-clearable -- pressing CLEAR on an
+    /// in-condition alarm would be alarm suppression (ISA-18.2), so the
+    /// panel skips them. Latched faults (manual fault-injection buttons,
+    /// the injector) leave this false and must be cleared by the operator.
+    var processDriven: Bool = false
 
     var isActive: Bool { clearedAt == nil }
     var isAcknowledged: Bool { acknowledgedAt != nil }
+    /// A latched fault the operator is expected to CLEAR. Process-driven
+    /// alarms self-clear when the field condition returns to normal.
+    var isOperatorClearable: Bool { isActive && !processDriven }
     var statusLabel: String {
         if clearedAt != nil { return "CLEARED" }
         return acknowledgedAt == nil ? "UNACK" : "ACK"
@@ -226,12 +237,14 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: "SYS",
                        point: "SAFETY_MODE",
                        severity: .critical,
-                       message: Strings.lookup("alarm.msg.fire", lang: .en))
+                       message: Strings.lookup("alarm.msg.fire", lang: .en),
+                       processDriven: true)
         case .emergencyPower:
             raiseAlarm(source: "SYS",
                        point: "SAFETY_MODE",
                        severity: .major,
-                       message: Strings.lookup("alarm.msg.epo", lang: .en))
+                       message: Strings.lookup("alarm.msg.epo", lang: .en),
+                       processDriven: true)
             // Emergency-power means the building's running off the
             // backup generator -- which only kicks in once the mains
             // supply has actually failed. Raise PWR/MAINS automatically
@@ -283,7 +296,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "OVERLOAD",
                        severity: .critical,
-                       message: Strings.lookup("alarm.msg.overload", lang: .en))
+                       message: Strings.lookup("alarm.msg.overload", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "OVERLOAD")
         }
@@ -291,7 +305,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "FULL_LOAD",
                        severity: .advisory,
-                       message: Strings.lookup("alarm.msg.fullload", lang: .en))
+                       message: Strings.lookup("alarm.msg.fullload", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "FULL_LOAD")
         }
@@ -312,7 +327,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "TERMINAL_LIMIT",
                        severity: .critical,
-                       message: Strings.lookup("alarm.msg.terminallimit", lang: .en))
+                       message: Strings.lookup("alarm.msg.terminallimit", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "TERMINAL_LIMIT")
         }
@@ -328,7 +344,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "BRAKE_HOLD",
                        severity: .critical,
-                       message: Strings.lookup("alarm.msg.brakehold", lang: .en))
+                       message: Strings.lookup("alarm.msg.brakehold", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "BRAKE_HOLD")
         }
@@ -340,7 +357,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "OVERSPEED",
                        severity: .critical,
-                       message: Strings.lookup("alarm.msg.overspeed", lang: .en))
+                       message: Strings.lookup("alarm.msg.overspeed", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "OVERSPEED")
         }
@@ -355,7 +373,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "LANDING_ZONE",
                        severity: .major,
-                       message: Strings.lookup("alarm.msg.landingzone", lang: .en))
+                       message: Strings.lookup("alarm.msg.landingzone", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "LANDING_ZONE")
         }
@@ -378,7 +397,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "DOOR_OPEN",
                        severity: .minor,
-                       message: Strings.lookup("alarm.msg.doorheld", lang: .en))
+                       message: Strings.lookup("alarm.msg.doorheld", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "DOOR_OPEN")
         }
@@ -397,7 +417,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "DOOR_CLOSE",
                        severity: .major,
-                       message: Strings.lookup("alarm.msg.doorclose", lang: .en))
+                       message: Strings.lookup("alarm.msg.doorclose", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "DOOR_CLOSE")
         }
@@ -423,7 +444,8 @@ final class ElevatorWorld: ObservableObject {
             raiseAlarm(source: source,
                        point: "DISPATCH",
                        severity: .major,
-                       message: Strings.lookup("alarm.msg.dispatchstall", lang: .en))
+                       message: Strings.lookup("alarm.msg.dispatchstall", lang: .en),
+                       processDriven: true)
         } else {
             clearAlarm(source: source, point: "DISPATCH")
         }
@@ -784,7 +806,7 @@ final class ElevatorWorld: ObservableObject {
     }
 
     @discardableResult
-    func raiseAlarm(source: String, point: String, severity: AlarmSeverity, message: String) -> SCADAAlarm {
+    func raiseAlarm(source: String, point: String, severity: AlarmSeverity, message: String, processDriven: Bool = false) -> SCADAAlarm {
         if let index = alarmLog.firstIndex(where: { $0.isActive && $0.source == source && $0.point == point }) {
             return alarmLog[index]
         }
@@ -796,7 +818,8 @@ final class ElevatorWorld: ObservableObject {
                                source: source,
                                point: point,
                                severity: severity,
-                               message: message)
+                               message: message,
+                               processDriven: processDriven)
         nextAlarmSequence += 1
         alarmLog.insert(alarm, at: 0)
         if alarmLog.count > 200 {
@@ -822,18 +845,50 @@ final class ElevatorWorld: ObservableObject {
         return count
     }
 
-    /// Clear every currently-active alarm outright, regardless of whether
-    /// it has been acknowledged. Returns the number cleared. (Distinct
-    /// from CLEAR ACK, which only clears alarms already acknowledged.)
+    /// Clear every operator-clearable (latched) active alarm outright,
+    /// regardless of whether it has been acknowledged. Returns the number
+    /// cleared. (Distinct from CLEAR ACK, which only clears latched alarms
+    /// already acknowledged.) Process-driven alarms are deliberately left
+    /// alone -- they reflect a live field condition and would be re-raised
+    /// by the next tick, so "clearing" them would be meaningless alarm
+    /// suppression; they self-clear when the condition returns to normal.
     @discardableResult
     func clearAllActiveAlarms() -> Int {
         let now = Date()
         var count = 0
-        for index in alarmLog.indices where alarmLog[index].isActive {
+        for index in alarmLog.indices where alarmLog[index].isOperatorClearable {
             alarmLog[index].clearedAt = now
             count += 1
         }
         return count
+    }
+
+    /// Clear only the latched alarms the operator has already acknowledged
+    /// (the ACK-before-CLEAR discipline). Process-driven alarms are skipped
+    /// for the same reason as `clearAllActiveAlarms()`. Returns the count.
+    @discardableResult
+    func clearAcknowledgedActiveAlarms() -> Int {
+        let now = Date()
+        var count = 0
+        for index in alarmLog.indices
+        where alarmLog[index].isOperatorClearable && alarmLog[index].isAcknowledged {
+            alarmLog[index].clearedAt = now
+            count += 1
+        }
+        return count
+    }
+
+    /// True when at least one latched fault is present for the operator to
+    /// CLEAR. Drives the CLEAR ALL button's enabled state so it isn't lit
+    /// when the only active alarms are self-clearing process alarms.
+    var hasClearableAlarms: Bool {
+        alarmLog.contains { $0.isOperatorClearable }
+    }
+
+    /// True when at least one *acknowledged* latched fault is present.
+    /// Drives the CLEAR ACK button's enabled state.
+    var hasClearableAcknowledgedAlarms: Bool {
+        alarmLog.contains { $0.isOperatorClearable && $0.isAcknowledged }
     }
 
     @discardableResult
