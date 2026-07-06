@@ -11,3 +11,6 @@ build/
 
 ## macOS
 .DS_Store
+
+## Build / session logs
+swift-session.log
