@@ -133,7 +133,7 @@ struct ElevatorSystemApp: App {
             alert.addButton(withTitle: "Activate Existing")
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
-                other.activate(options: [.activateIgnoringOtherApps])
+                other.activate()
             }
             NSApp.terminate(nil)
         }

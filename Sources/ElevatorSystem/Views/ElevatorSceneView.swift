@@ -38,7 +38,7 @@ struct ElevatorSceneWindow: View {
         }
         .frame(minWidth: 720, minHeight: 560)
         .background(Color.black)
-        .onChange(of: world.elevators.count) { _ in
+        .onChange(of: world.elevators.count) {
             if showingRemote {
                 let peers = world.remotePeerIds
                 if peers.isEmpty {

@@ -24,7 +24,7 @@ struct DCLShellWindow: View {
             // banner line, the `$ ` prompt after CLEAR) gets hidden
             // behind the chrome.
             .background(WindowAccessor { hostWindow = $0 })
-            .onChange(of: dcl.loggedOut) { loggedOut in
+            .onChange(of: dcl.loggedOut) { _, loggedOut in
                 // LOGOUT / EXIT closes the DCL window. We delay briefly so
                 // the operator sees the "logged out" line before the
                 // window disappears, then reset the flag so a future

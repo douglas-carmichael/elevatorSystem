@@ -51,7 +51,7 @@ struct ControlPanelWindow: View {
         .frame(minWidth: 920, minHeight: 620)
         .environment(\.colorScheme, .dark)
         .onAppear { ensureFocus() }
-        .onChange(of: world.elevators.map(\.id)) { _ in ensureFocus() }
+        .onChange(of: world.elevators.map(\.id)) { ensureFocus() }
     }
 
     private func handleKey(_ ev: NSEvent) -> NSEvent? {
