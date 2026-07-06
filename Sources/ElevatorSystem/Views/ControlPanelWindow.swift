@@ -123,8 +123,11 @@ struct ControlPanelWindow: View {
     private func controllableCabs() -> [Elevator] {
         // Any cab we can drive -- locally owned, or remote with a live
         // link to its owner. The keyboard focus ring walks this set so
-        // the number / O / C keys can dispatch remote cabs too.
-        world.elevators.filter { network.canControl($0) }
+        // the number / O / C keys can dispatch remote cabs too. Use the
+        // SAME order the panels are rendered in (sortedElevators), so TAB
+        // advances "FOCUSED CAB" to the cab visually below the current one
+        // rather than to the next cab in raw insertion order.
+        world.sortedElevators.filter { network.canControl($0) }
     }
 
     private func ensureFocus() {
