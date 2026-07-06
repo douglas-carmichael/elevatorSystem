@@ -23,9 +23,9 @@ auto-controlled elevators so the scene is populated.
 
 ### Screenshots
 
-| Group Dispatcher (VT320) | DCL Terminal | Hoistway Synoptic (3D) |
-|:---:|:---:|:---:|
-| ![Group Dispatcher](docs/dispatcher.png) | ![DCL Terminal](docs/dcl.png) | ![Hoistway Synoptic](docs/synoptic.png) |
+| Group Dispatcher (VT320) | DCL Terminal | Hoistway Synoptic (3D) | Cab Dynamics |
+|:---:|:---:|:---:|:---:|
+| ![Group Dispatcher](docs/dispatcher.png) | ![DCL Terminal](docs/dcl.png) | ![Hoistway Synoptic](docs/synoptic.png) | ![Cab Dynamics](docs/dynamics.png) |
 
 ### Requirements
 
@@ -224,9 +224,9 @@ quelques ascenseurs autonomes pour peupler la scène.
 
 ### Captures d'écran
 
-| Régulateur de groupe (VT320) | Terminal DCL | Synoptique de gaine (3D) |
-|:---:|:---:|:---:|
-| ![Régulateur de groupe](docs/dispatcher_fr.png) | ![Terminal DCL](docs/dcl_fr.png) | ![Synoptique de gaine](docs/synoptic_fr.png) |
+| Régulateur de groupe (VT320) | Terminal DCL | Synoptique de gaine (3D) | Dynamique cabines |
+|:---:|:---:|:---:|:---:|
+| ![Régulateur de groupe](docs/dispatcher_fr.png) | ![Terminal DCL](docs/dcl_fr.png) | ![Synoptique de gaine](docs/synoptic_fr.png) | ![Dynamique cabines](docs/dynamics_fr.png) |
 
 ### Prérequis
 
