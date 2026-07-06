@@ -809,6 +809,20 @@ final class ElevatorWorld: ObservableObject {
         return count
     }
 
+    /// Clear every currently-active alarm outright, regardless of whether
+    /// it has been acknowledged. Returns the number cleared. (Distinct
+    /// from CLEAR ACK, which only clears alarms already acknowledged.)
+    @discardableResult
+    func clearAllActiveAlarms() -> Int {
+        let now = Date()
+        var count = 0
+        for index in alarmLog.indices where alarmLog[index].isActive {
+            alarmLog[index].clearedAt = now
+            count += 1
+        }
+        return count
+    }
+
     @discardableResult
     func clearAlarm(sequence: Int) -> Bool {
         guard let index = alarmLog.firstIndex(where: { $0.sequence == sequence && $0.isActive }) else { return false }

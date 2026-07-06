@@ -59,10 +59,20 @@ struct DynamicsMonitorWindow: View {
                     Text(language.t("dynamics.empty"))
                         .font(Self.bodyFont)
                         .foregroundColor(RetroTheme.greenDim)
+                    Spacer(minLength: 0)
                 } else {
-                    ForEach(rows) { row in
-                        rowView(row)
+                    // Scroll the cab table so a large cluster doesn't crush
+                    // the velocity trace below it; the table takes whatever
+                    // vertical space is left after the fixed trace + footers.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(rows) { row in
+                                rowView(row)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxHeight: .infinity)
                 }
                 Spacer().frame(height: 8)
                 velocityTrace
@@ -73,7 +83,7 @@ struct DynamicsMonitorWindow: View {
             }
             .padding(20)
         }
-        .frame(minWidth: 760, minHeight: 700)
+        .frame(minWidth: 760, minHeight: 560)
         .environment(\.colorScheme, .dark)
         .onAppear { sample() }
         .task {

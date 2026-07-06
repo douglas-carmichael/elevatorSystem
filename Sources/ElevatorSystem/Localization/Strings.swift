@@ -231,6 +231,7 @@ enum Strings {
         add("alarm.unack",          "UNACK",                               "NON ACQ.")
         add("alarm.ack",            "ACK",                                 "ACQ.")
         add("alarm.ack.all",        "ACK ALL",                             "TOUT ACQ.")
+        add("alarm.clear.all",      "CLEAR ALL",                           "TOUT EFF.")
         add("alarm.clear.ack",      "CLEAR ACK",                           "EFF. ACQ.")
         add("alarm.inject",         "INJECT",                              "INJECTER")
         add("alarm.none.active",    "NO ACTIVE ALARMS",                    "AUCUNE ALARME ACTIVE")

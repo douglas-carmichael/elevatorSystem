@@ -69,6 +69,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(world)
         }
         .windowResizability(.contentMinSize)
+        .defaultSize(width: 900, height: 900)
         .restorationDisabled()
     }
 

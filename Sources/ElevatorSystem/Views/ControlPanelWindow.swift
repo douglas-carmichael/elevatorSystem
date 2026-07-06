@@ -311,6 +311,9 @@ private struct SCADAAlarmPanel: View {
                     RetroButton(language.t("alarm.ack.all"), enabled: world.unacknowledgedAlarmCount > 0) {
                         _ = world.acknowledgeAllAlarms()
                     }
+                    RetroButton(language.t("alarm.clear.all"), enabled: !world.activeAlarms.isEmpty) {
+                        _ = world.clearAllActiveAlarms()
+                    }
                 }
                 HStack(spacing: 8) {
                     failureButton("CTRL", source: "SYS", point: "CONTROLLER", severity: .major, messageKey: "alarm.msg.controller")
