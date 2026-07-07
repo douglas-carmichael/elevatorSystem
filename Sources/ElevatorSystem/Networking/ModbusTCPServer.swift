@@ -74,7 +74,7 @@ final class ModbusTCPServer: ObservableObject {
     /// strip. Tracks `clientCount`, but holds its last non-zero value for
     /// `indicatorLinger` seconds after the live count drops to zero, so a
     /// client that opens a fresh connection every poll (connect/read/close
-    /// each cycle, e.g. ModViz) reads as steadily connected instead of
+    /// each cycle, e.g. Modbus Poll) reads as steadily connected instead of
     /// strobing 1/0/1/0.
     @Published private(set) var displayedClientCount: Int = 0
 
@@ -421,7 +421,7 @@ final class ModbusClient {
             return Data([0x85, 0x03])
         }
         writeCoil(at: addr, on: value == 0xFF00)
-        return pdu                                  // echo
+        return Data([0x05]) + pdu                   // echo: FC + addr + value
     }
 
     private func handleWriteSingleRegister(_ pdu: Data) -> Data {
@@ -429,7 +429,7 @@ final class ModbusClient {
         let addr = u16(pdu, 0)
         let value = u16(pdu, 2)
         writeHoldingRegister(at: addr, value: value)
-        return pdu                                  // echo
+        return Data([0x06]) + pdu                   // echo: FC + addr + value
     }
 
     /// FC 0x0F -- Write Multiple Coils. Lets a PLC stage several
