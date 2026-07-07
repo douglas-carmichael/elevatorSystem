@@ -212,7 +212,7 @@ private struct StatusStrip: View {
                            valueColor: telnet.sessionCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
                 StatusLine(label: language.t("status.modbus"),
                            value: modbusValue,
-                           valueColor: modbus.clientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
+                           valueColor: modbus.displayedClientCount == 0 ? RetroTheme.amberDim : RetroTheme.green)
                 StatusLine(label: language.t("status.mode"),
                            value: modeValue,
                            valueColor: world.buildingMode == .normal ? RetroTheme.green : RetroTheme.amberBright)
@@ -250,7 +250,7 @@ private struct StatusStrip: View {
     }
 
     private var modbusValue: String {
-        let count = modbus.clientCount
+        let count = modbus.displayedClientCount
         switch count {
         case 0:  return language.t("status.modbus.none")
         case 1:  return language.t("status.modbus.one")

@@ -60,15 +60,23 @@ import Network
 ///     1010    Active hall-call count
 ///
 /// Function codes accepted: FC 01/02/03/04/05/06/0F/10. Anything else
-/// returns exception 0x01 (illegal function). Requests for any unit-id
-/// other than this dispatcher's id (=1) or the broadcast id (=0) get
-/// exception 0x02 (illegal data address).
+/// returns exception 0x01 (illegal function). The unit-id (slave address)
+/// field is accepted regardless of value and echoed back, matching how a
+/// directly-connected Modbus-TCP slave behaves -- the device is addressed
+/// by IP, so masters that default to unit-id 1, 128, or 255 all work.
 @MainActor
 final class ModbusTCPServer: ObservableObject {
     @Published private(set) var port: UInt16?
-    /// Number of active Modbus client connections. Drives the MODBUS
-    /// indicator in the Group Dispatcher status strip.
+    /// Number of live Modbus socket connections right now. Reported on the
+    /// wire (input register 1004).
     @Published private(set) var clientCount: Int = 0
+    /// Client count for the MODBUS status indicator in the Group Dispatcher
+    /// strip. Tracks `clientCount`, but holds its last non-zero value for
+    /// `indicatorLinger` seconds after the live count drops to zero, so a
+    /// client that opens a fresh connection every poll (connect/read/close
+    /// each cycle, e.g. ModViz) reads as steadily connected instead of
+    /// strobing 1/0/1/0.
+    @Published private(set) var displayedClientCount: Int = 0
 
     private weak var world: ElevatorWorld?
     private weak var network: PeerNetwork?
@@ -77,8 +85,20 @@ final class ModbusTCPServer: ObservableObject {
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "net.dcarmichael.elevator.modbus")
+    private var lingerTask: Task<Void, Never>?
     private var clients: [ObjectIdentifier: ModbusClient] = [:] {
-        didSet { clientCount = clients.count }
+        didSet {
+            clientCount = clients.count
+            if clients.isEmpty {
+                armIndicatorLinger()
+            } else {
+                // A live connection exists: reflect it immediately and
+                // cancel any pending clear.
+                lingerTask?.cancel()
+                lingerTask = nil
+                displayedClientCount = clients.count
+            }
+        }
     }
 
     static let defaultPort: UInt16 = 5020
@@ -94,12 +114,11 @@ final class ModbusTCPServer: ObservableObject {
     /// headroom to grow (to ~60 cabs) before it could reach the status
     /// registers.
     static let scalarBase: Int = 1000
-    /// Modbus slave address of this dispatcher. Convention on TCP is
-    /// to address a single device as unit-id 1; clients targeting any
-    /// other unit-id (other than the broadcast id 0) get an exception
-    /// 0x02 (illegal data address) response, matching how a real
-    /// gateway behaves when forwarded a request for a missing slave.
-    static let localUnitId: UInt8 = 1
+    /// How long the MODBUS status indicator holds "connected" after the last
+    /// live socket closes. Long enough to bridge the idle gap between polls
+    /// for a per-poll client (a 1 s poll interval is typical) so the
+    /// indicator stays steady.
+    static let indicatorLinger: TimeInterval = 3.0
 
     init() {}
 
@@ -142,9 +161,25 @@ final class ModbusTCPServer: ObservableObject {
     func stop() {
         listener?.cancel()
         listener = nil
+        lingerTask?.cancel()
+        lingerTask = nil
         for (_, client) in clients { client.cancel() }
         clients.removeAll()
+        displayedClientCount = 0
         port = nil
+    }
+
+    /// Clear the status indicator `indicatorLinger` seconds from now, unless
+    /// a new connection arrives first (which cancels this task via the
+    /// `clients` didSet). Keeps a per-poll client from strobing the display.
+    private func armIndicatorLinger() {
+        lingerTask?.cancel()
+        lingerTask = Task { @MainActor [weak self] in
+            let ns = UInt64(ModbusTCPServer.indicatorLinger * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: ns)
+            guard let self, !Task.isCancelled else { return }
+            if self.clients.isEmpty { self.displayedClientCount = 0 }
+        }
     }
 
     private func handleNewConnection(_ conn: NWConnection) {
@@ -270,18 +305,13 @@ final class ModbusClient {
         let fc = frame[7]
         let pdu = frame.subdata(in: 8..<frame.count)
 
-        // Unit-id (slave-address) gating. Modbus reserves 0 for
-        // broadcast (we accept it but don't respond per spec... we do
-        // here so a generic client doesn't time out); any non-local
-        // unit-id gets exception 0x02 (illegal data address). A real
-        // gateway behaves the same way when it doesn't have a slave
-        // configured at that address.
-        if unitId != 0 && unitId != ModbusTCPServer.localUnitId {
-            sendResponse(txnId: txnId,
-                         unitId: unitId,
-                         pdu: Data([fc | 0x80, 0x02]))
-            return
-        }
+        // Unit-id (slave-address) is vestigial on Modbus TCP: the device
+        // is addressed by IP, so a directly-connected TCP slave answers
+        // regardless of the unit-id field. We accept any value and echo it
+        // back in the response. (Real masters vary wildly here -- Modbus
+        // Poll and many HMIs default to 1, others to 255, and some, like
+        // ModViz, to 128. Gating on a single id makes those clients see an
+        // exception on their first poll and drop the connection.)
 
         let response: Data
         switch fc {
