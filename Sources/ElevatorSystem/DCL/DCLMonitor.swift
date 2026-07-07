@@ -153,23 +153,29 @@ extension DCLEngine {
     }
 
     func mheader(_ title: String) -> String {
-        // Real OpenVMS MONITOR renders the utility banner and the class
-        // title in reverse video via SMG$. SGR 7 / SGR 27 (DEC private
-        // mode) toggle that on/off; SwiftTerm interprets these correctly.
+        // Real OpenVMS MONITOR draws a plain four-line centered banner --
+        // "OpenVMS Monitor Utility", the class title, "on node <node>", and
+        // the timestamp -- with no decorative rule around the title. SMG$
+        // renders the top two lines (utility name + class title) in reverse
+        // video; SGR 7 / SGR 27 toggle that on/off and the RetroTerminalView
+        // emulator (and external telnet clients) honor them.
         var s = "\n"
         s += reverseCentered("\(osTitle) Monitor Utility") + "\n"
-        s += reverseCentered("+ + + + + + + + + + + + + + \(title) + + + + + + + + + + + + + +") + "\n"
+        s += reverseCentered(title) + "\n"
         s += centered("on node \(nodeName)") + "\n"
         s += centered(stamp(Date())) + "\n\n"
         return s
     }
 
-    func mcolHeader() -> String {
+    func mcolHeader(percent: Bool = false) -> String {
         // Column headers (CUR / AVE / MIN / MAX) in bold to match the
-        // attribute SMG$ applies on real VMS displays.
+        // attribute SMG$ applies on real VMS displays. Percentage classes
+        // (MODES, STATES) suffix each heading with "%" -- "CUR% AVE% ..." --
+        // exactly as the real utility does.
+        let suffix = percent ? "%" : ""
         let row = mlabel("") +
-                  mvalHeader("CUR") + mvalHeader("AVE") +
-                  mvalHeader("MIN") + mvalHeader("MAX")
+                  mvalHeader("CUR" + suffix) + mvalHeader("AVE" + suffix) +
+                  mvalHeader("MIN" + suffix) + mvalHeader("MAX" + suffix)
         return "\u{1B}[1m" + row + "\u{1B}[22m" + "\n\n"
     }
 
@@ -193,6 +199,18 @@ extension DCLEngine {
         let j = mjitter(cur)
         return String(format: "%@%11.2f%11.2f%11.2f%11.2f\n",
                       mlabel(label), cur, j.ave, j.min, j.max)
+    }
+
+    /// A `mrow` for percentage classes (MODES, STATES): CUR and the derived
+    /// AVE/MIN/MAX are clamped to 0..100 so the table never reports an
+    /// impossible figure like 160% Idle Time -- real MONITOR percentage
+    /// columns can't exceed 100.
+    func mrowPct(_ label: String, _ cur: Double) -> String {
+        let c = min(100.0, max(0.0, cur))
+        let j = mjitter(c)
+        return String(format: "%@%11.2f%11.2f%11.2f%11.2f\n",
+                      mlabel(label), c,
+                      min(100.0, j.ave), min(100.0, j.min), min(100.0, j.max))
     }
 
     func mrowi(_ label: String, _ cur: Int) -> String {
@@ -222,22 +240,30 @@ extension DCLEngine {
         let user   = usage.user + usage.nice
         let procCount = host.processCount()
         let rates = host.vmRates()
+        let vm = host.vmStats()
         let disks = host.diskRates()
         let totalDiskOps = disks.reduce(0.0) { $0 + $1.totalOpsPerSec }
 
+        // Row set and order are exactly the real SYSTEM class: the eight
+        // processor-mode lines, Process Count, the two page rates, the Free
+        // and Modified list sizes (in pages), then the two I/O rates. MP
+        // Synchronization and Compatibility Mode are always 0.00 on x86_64
+        // VSI OpenVMS but real MONITOR still lists them, so we keep the rows.
         var s = mheader("SYSTEM STATISTICS")
         s += mcolHeader()
         s += mrow("Interrupt State",            intr)
+        s += mrow("MP Synchronization",         0.0)
         s += mrow("Kernel Mode",                kernel)
         s += mrow("Executive Mode",             exec)
         s += mrow("Supervisor Mode",            super_)
         s += mrow("User Mode",                  user)
+        s += mrow("Compatibility Mode",         0.0)
         s += mrow("Idle Time",                  usage.idle)
-        s += "\n"
         s += mrowi("Process Count",             procCount)
         s += mrow("Page Fault Rate",            rates.pageFaultRate)
         s += mrow("Page Read I/O Rate",         rates.pageInRate)
-        s += mrow("Page Write I/O Rate",        rates.pageOutRate)
+        s += mrow("Free List Size",             Double(vm.freePages))
+        s += mrow("Modified List Size",         Double(vm.inactivePages))
         s += mrow("Direct I/O Rate",            totalDiskOps)
         s += mrow("Buffered I/O Rate",          rates.lookupRate)
         return s
@@ -251,18 +277,20 @@ extension DCLEngine {
         let intr   = usage.system * 0.05
         let user   = usage.user + usage.nice
 
-        // MP Synchronization and Compatibility Mode are 0 on x86_64 VSI
-        // OpenVMS (no VAX-compat instructions, no MP barrier sampling
-        // exposed) -- dropping them keeps the frame inside 24 rows so a
-        // standard VT220-sized client doesn't scroll.
-        var s = mheader("TIME IN PROCESSOR MODES")
-        s += mcolHeader()
-        s += mrow("Interrupt State",            intr)
-        s += mrow("Kernel Mode",                kernel)
-        s += mrow("Executive Mode",             exec)
-        s += mrow("Supervisor Mode",            super_)
-        s += mrow("User Mode",                  user)
-        s += mrow("Idle Time",                  usage.idle)
+        // Real MONITOR MODES titles the class "(%)" and heads the columns
+        // CUR% AVE% MIN% MAX%. MP Synchronization and Compatibility Mode are
+        // always 0.00 on x86_64 VSI OpenVMS but the utility still lists them;
+        // the eight-row frame fits comfortably inside a 24-line terminal.
+        var s = mheader("TIME IN PROCESSOR MODES (%)")
+        s += mcolHeader(percent: true)
+        s += mrowPct("Interrupt State",            intr)
+        s += mrowPct("MP Synchronization",         0.0)
+        s += mrowPct("Kernel Mode",                kernel)
+        s += mrowPct("Executive Mode",             exec)
+        s += mrowPct("Supervisor Mode",            super_)
+        s += mrowPct("User Mode",                  user)
+        s += mrowPct("Compatibility Mode",         0.0)
+        s += mrowPct("Idle Time",                  usage.idle)
         return s
     }
 
@@ -358,23 +386,33 @@ extension DCLEngine {
         let lef = cabs.filter { $0.doors == .open || $0.doors == .opening }.count + 4
         let hib = cabs.filter { $0.direction == .idle && $0.doors == .closed }.count + 2
         let com = cabs.filter { $0.direction != .idle }.count + 1
+        let cur = 1
 
-        var s = mheader("PROCESS STATES")
-        s += mcolHeader()
-        s += mrowi("Collided Page Wait",          0)
-        s += mrowi("Mutex & Misc Resource Wait",  0)
-        s += mrowi("Common Event Flag Wait",      0)
-        s += mrowi("Page Fault Wait",             0)
-        s += mrowi("Local Event Flag Wait",       lef)
-        s += mrowi("Local Evt Flg (Outswapped)",  0)
-        s += mrowi("Hibernate",                   hib)
-        s += mrowi("Hibernate (Outswapped)",      0)
-        s += mrowi("Suspended",                   0)
-        s += mrowi("Suspended (Outswapped)",      0)
-        s += mrowi("Free Page Wait",              0)
-        s += mrowi("Compute",                     com)
-        s += mrowi("Compute (Outswapped)",        0)
-        s += mrowi("Current Process",             1)
+        // Real MONITOR STATES defaults to a percentage display -- each row is
+        // the share of the process population in that scheduler state, titled
+        // "PROCESS STATES (%)" with CUR% AVE% MIN% MAX% column heads. Convert
+        // the synthetic populations to percentages of the total so the rows
+        // sum to ~100 the way the live utility's do.
+        let total = Double(max(1, lef + hib + com + cur))
+        func pct(_ n: Int) -> Double { Double(n) / total * 100.0 }
+
+        var s = mheader("PROCESS STATES (%)")
+        s += mcolHeader(percent: true)
+        s += mrowPct("Collided Page Wait",          0.0)
+        s += mrowPct("Mutex & Misc Resource Wait",  0.0)
+        s += mrowPct("Common Event Flag Wait",      0.0)
+        s += mrowPct("Page Fault Wait",             0.0)
+        s += mrowPct("Local Event Flag Wait",       pct(lef))
+        s += mrowPct("Local Evt Flg (Outswapped)",  0.0)
+        s += "\n"
+        s += mrowPct("Hibernate",                   pct(hib))
+        s += mrowPct("Hibernate (Outswapped)",      0.0)
+        s += mrowPct("Suspended",                   0.0)
+        s += mrowPct("Suspended (Outswapped)",      0.0)
+        s += mrowPct("Free Page Wait",              0.0)
+        s += mrowPct("Compute",                     pct(com))
+        s += mrowPct("Compute (Outswapped)",        0.0)
+        s += mrowPct("Current Process",             pct(cur))
         return s
     }
 

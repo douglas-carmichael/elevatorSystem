@@ -300,10 +300,13 @@ enum Strings {
         add("diag.seeresults",      "see results",                         "voir résultats")
         add("diag.abort.hint",      "Press  Ctrl/Y  or  ESC ESC  to abort", "Appuyez sur Ctrl/Y ou ESC ESC pour annuler")
         add("diag.exit.hint",       "Press  Ctrl/Y  or  ESC ESC  to exit",  "Appuyez sur Ctrl/Y ou ESC ESC pour quitter")
-        add("diag.col.cab",         "Cab     Test                              Reading        Status",
-                                    "Cabine  Test                              Mesure         Statut")
-        add("diag.col.floor",       "Floor   Test                              Reading        Status",
-                                    "Étage   Test                              Mesure         Statut")
+        // Only the label-field heading ("<column1>  Test"). The Reading and
+        // Status headings are appended in code (refreshTestDisplay) so they
+        // stay aligned with the row field widths regardless of language.
+        add("diag.col.cab",         "Cab     Test",                        "Cabine  Test")
+        add("diag.col.floor",       "Floor   Test",                        "Étage   Test")
+        add("diag.col.reading",     "Reading",                             "Mesure")
+        add("diag.col.status",      "Status",                              "Statut")
         add("diag.menu.title",      "Diagnostic Test Selection",
                                     "Sélection des Tests de Diagnostic")
         add("diag.menu.copyright",  "Copyright (c) 1985-2026 Levage & Portes Dauphiné S.A. All rights reserved.",

@@ -18,8 +18,8 @@ final class DCLEngine: ObservableObject {
     @Published var liveActive: Bool = false
 
     /// Sink for output destined for the VT220/320 terminal view. Set by
-    /// the SwiftTerm bridge in VTShellView. Receives both plain text and
-    /// raw escape sequences. Bytes still land in `transcript` (without
+    /// the RetroTerminalView bridge in VTShellView. Receives both plain text
+    /// and raw escape sequences. Bytes still land in `transcript` (without
     /// escapes) so SELFTEST and unit tests can introspect output.
     var outputHandler: ((String) -> Void)? {
         didSet { flushPendingOutput() }

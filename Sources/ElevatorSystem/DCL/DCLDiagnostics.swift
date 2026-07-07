@@ -44,9 +44,17 @@ extension DCLEngine {
         // from the screen. Instead, position each row absolutely with
         // CUP (`ESC [ r ; 1 H`) so no \n ever leaves the bottom of the
         // viewport, then `ESC [ J` wipes anything below.
-        func boxLine(_ inner: String) -> String {
-            let pad = max(0, width - 2 - inner.count)
-            return "│" + inner + String(repeating: " ", count: pad) + "│"
+        // `reverse` highlights only the interior (between the vertical
+        // borders), so the │ box edges stay plain thin glyphs and the
+        // reverse bar sits inside the box instead of overrunning it. Inner
+        // text is clamped to the interior width so a long (e.g. French)
+        // title can never stretch past the right border.
+        func boxLine(_ inner: String, reverse: Bool = false) -> String {
+            let clamped = String(inner.prefix(width - 2))
+            let pad = max(0, width - 2 - clamped.count)
+            let body = clamped + String(repeating: " ", count: pad)
+            let painted = reverse ? "\u{1B}[7m" + body + "\u{1B}[27m" : body
+            return "│" + painted + "│"
         }
         func sep(left: String, right: String) -> String {
             return left + String(repeating: "─", count: width - 2) + right
@@ -65,24 +73,35 @@ extension DCLEngine {
 
         let innerWidth = width - 2
 
+        // Column field widths shared by the header and every data row, so
+        // the Reading / Status headings always sit above their columns no
+        // matter how wide the localized headings are.
+        let labelWidth = 42
+        let readingWidth = 18
+
         var rows: [String] = []
         rows.append(sep(left: "┌", right: "┐"))
-        rows.append(boxLine(centered("\(name)    \(operatorLbl): \(username)")))
+        rows.append(boxLine(centered("\(name)    \(operatorLbl): \(username)"), reverse: true))
         rows.append(sep(left: "├", right: "┤"))
-        rows.append(boxLine("  " + header))
+        // `header` is the label-field heading ("<column1>  Test"); append the
+        // Reading and Status headings at the same offsets the rows use.
+        let headerRow = header.padding(toLength: labelWidth, withPad: " ", startingAt: 0)
+            + tr("diag.col.reading").padding(toLength: readingWidth, withPad: " ", startingAt: 0)
+            + " " + tr("diag.col.status")
+        rows.append(boxLine("  " + headerRow))
 
         for (i, step) in testSteps.enumerated() {
-            let label = step.label.padding(toLength: 42, withPad: " ", startingAt: 0)
+            let label = step.label.padding(toLength: labelWidth, withPad: " ", startingAt: 0)
             let reading: String
             let status: String
             if i < testResults.count {
-                reading = testResults[i].reading.padding(toLength: 18, withPad: " ", startingAt: 0)
+                reading = testResults[i].reading.padding(toLength: readingWidth, withPad: " ", startingAt: 0)
                 status  = testResults[i].status
             } else if i == testCurrent && !complete {
-                reading = "....".padding(toLength: 18, withPad: " ", startingAt: 0)
+                reading = "....".padding(toLength: readingWidth, withPad: " ", startingAt: 0)
                 status  = runningWord
             } else {
-                reading = "".padding(toLength: 18, withPad: " ", startingAt: 0)
+                reading = "".padding(toLength: readingWidth, withPad: " ", startingAt: 0)
                 status  = queuedWord
             }
             rows.append(boxLine("  " + label + reading + " " + status))
@@ -110,13 +129,19 @@ extension DCLEngine {
         }
         rows.append(sep(left: "└", right: "┘"))
 
-        var s = ""
+        // The title row carries its own reverse-video interior (see boxLine
+        // above), so the borders stay plain. Reset SGR (CSI 0 m) at the top
+        // of the frame so no attribute inherited from a prior screen bleeds
+        // in.
+        var s = "\u{1B}[0m"
         for (idx, row) in rows.enumerated() {
             s += "\u{1B}[\(idx + 1);1H" + row
         }
         // Park the cursor below the last row before erasing -- erasing from
-        // mid-row would leave trailing cells of the hint row visible.
-        s += "\u{1B}[\(rows.count + 1);1H\u{1B}[J"
+        // mid-row would leave trailing cells of the hint row visible. Reset
+        // SGR first so the erased region isn't painted in reverse video
+        // (erase honors the active attribute on many terminals).
+        s += "\u{1B}[0m\u{1B}[\(rows.count + 1);1H\u{1B}[J"
         outRaw(s)
     }
 
@@ -392,9 +417,15 @@ extension DCLEngine {
         let width = 78
         let innerWidth = width - 2
 
-        func boxLine(_ inner: String) -> String {
-            let pad = max(0, innerWidth - inner.count)
-            return "│" + inner + String(repeating: " ", count: pad) + "│"
+        // `reverse` highlights only the interior so the │ borders stay plain
+        // and the bar sits inside the box; inner text is clamped so it can't
+        // overrun the right border.
+        func boxLine(_ inner: String, reverse: Bool = false) -> String {
+            let clamped = String(inner.prefix(innerWidth))
+            let pad = max(0, innerWidth - clamped.count)
+            let body = clamped + String(repeating: " ", count: pad)
+            let painted = reverse ? "\u{1B}[7m" + body + "\u{1B}[27m" : body
+            return "│" + painted + "│"
         }
         func sep(_ left: String, _ right: String) -> String {
             return left + String(repeating: "─", count: innerWidth) + right
@@ -409,7 +440,7 @@ extension DCLEngine {
         // LPD suite header + copyright line + selection subtitle so the
         // menu reads like a real OpenVMS layered-product form, and all
         // three lines are localisable (FR speakers see French headings).
-        rows.append(boxLine(centered(tr("diag.suite") + "  V1.4")))
+        rows.append(boxLine(centered(tr("diag.suite") + "  V1.4"), reverse: true))
         rows.append(boxLine(centered(tr("diag.menu.copyright"))))
         rows.append(boxLine(centered(tr("diag.menu.title"))))
         rows.append(sep("├", "┤"))
@@ -417,18 +448,24 @@ extension DCLEngine {
         for (i, item) in diagMenuItems.enumerated() {
             let marker = i == diagMenuSelection ? " ▶ " : "   "
             let img    = item.image.padding(toLength: 16, withPad: " ", startingAt: 0)
-            rows.append(boxLine(marker + img + " " + item.description))
+            rows.append(boxLine(marker + img + " " + item.description, reverse: i == diagMenuSelection))
         }
         rows.append(boxLine(""))
         rows.append(sep("├", "┤"))
         rows.append(boxLine("  " + tr("diag.menu.nav")))
         rows.append(sep("└", "┘"))
 
-        var s = ""
+        // The suite title bar and the selected menu item carry their own
+        // reverse-video interior (see boxLine), the way a real OpenVMS
+        // full-screen form marks its header and cursor line. A leading
+        // CSI 0 m clears any inherited attribute.
+        var s = "\u{1B}[0m"
         for (idx, row) in rows.enumerated() {
             s += "\u{1B}[\(idx + 1);1H" + row
         }
-        s += "\u{1B}[\(rows.count + 1);1H\u{1B}[J"
+        // Reset SGR before erasing below so the cleared region isn't filled
+        // with the reverse-video attribute.
+        s += "\u{1B}[0m\u{1B}[\(rows.count + 1);1H\u{1B}[J"
         outRaw(s)
     }
 

@@ -55,6 +55,11 @@ final class RetroTerminalView: NSView {
 
     private struct Cell {
         var character: Character = " "
+        /// Reverse video (SGR 7). A reversed cell swaps foreground and
+        /// background when painted -- even a reversed space is drawn as a
+        /// solid block, which is what makes MONITOR / EDT status bars read
+        /// as a filled bar rather than plain text.
+        var reverse: Bool = false
     }
 
     /// 2-D grid of cells. We keep two of these: the primary buffer and
@@ -85,6 +90,11 @@ final class RetroTerminalView: NSView {
     private var altReturnRow: Int = 0
     private var altReturnCol: Int = 0
     private var cursorVisible: Bool = true
+
+    /// Active graphic rendition applied to newly written cells. Only
+    /// reverse video (SGR 7) is honored; other attributes are consumed as
+    /// no-ops because the display uses a single phosphor palette.
+    private var currentReverse: Bool = false
 
     // MARK: - Font metrics
 
@@ -241,6 +251,7 @@ final class RetroTerminalView: NSView {
               cursorCol >= 0, cursorCol < cols else { return }
         var buf = buffer
         buf[cursorRow][cursorCol].character = ch
+        buf[cursorRow][cursorCol].reverse = currentReverse
         buffer = buf
     }
 
@@ -288,6 +299,7 @@ final class RetroTerminalView: NSView {
             alternate = Array(repeating: Array(repeating: Cell(), count: cols), count: rows)
             cursorRow = 0
             cursorCol = 0
+            currentReverse = false
             parser = .ground
         case 0x44, 0x45, 0x4D:                      // 'D'/'E'/'M' -- index / next-line / reverse-index
             // Treated as LF for our needs.
@@ -370,10 +382,24 @@ final class RetroTerminalView: NSView {
             cursorRow = savedRow
             cursorCol = savedCol
         case "m":
-            // SGR -- ignored, we paint with the single configured palette.
-            break
+            applySGR()
         default:
             break
+        }
+    }
+
+    /// Select Graphic Rendition. We honor reverse video (7 on / 27 off) and
+    /// treat 0 (or an empty `CSI m`) as a full reset. Bold, underline, and
+    /// colour attributes are accepted but ignored -- the phosphor palette is
+    /// fixed -- so a sequence like `CSI 1 m` simply leaves reverse untouched.
+    private func applySGR() {
+        for p in csiParams {
+            switch p {
+            case 0, -1: currentReverse = false      // reset / bare `CSI m`
+            case 7:     currentReverse = true       // reverse video on
+            case 27:    currentReverse = false      // reverse video off
+            default:    break                       // bold/underline/colour: no-op
+            }
         }
     }
 
@@ -463,27 +489,45 @@ final class RetroTerminalView: NSView {
             .font: font,
             .foregroundColor: foregroundColor
         ]
+        // Reverse-video cells: the background is painted as a full-block
+        // glyph in the foreground colour (the same drawing path the cursor
+        // uses -- ctx.fill's rect misaligns by a row in this flipped view),
+        // then the character is stamped on top in the background colour.
+        let blockAttrs = attrs
+        let reverseGlyphAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: backgroundColor
+        ]
         for r in 0..<min(rows, buffer.count) {
             let row = buffer[r]
-            // Trim trailing blanks so we don't draw the whole line every time.
-            var lastNonBlank = -1
-            for c in (0..<cols).reversed() where c < row.count && row[c].character != " " {
-                lastNonBlank = c
+            // Trim trailing cells that need no paint. A reversed cell always
+            // needs painting (its block shows) even when it holds a space.
+            var lastPaint = -1
+            for c in (0..<cols).reversed()
+                where c < row.count && (row[c].character != " " || row[c].reverse) {
+                lastPaint = c
                 break
             }
-            if lastNonBlank < 0 { continue }
-            let chars = String(row.prefix(lastNonBlank + 1).map { $0.character })
+            if lastPaint < 0 { continue }
             let y = CGFloat(r) * cellHeight + glyphBaseline
-            let line = NSAttributedString(string: chars, attributes: attrs)
             // Draw each character cell-aligned. Even with a monospace
             // font, AppKit's text drawing can drift over long lines on
             // some fonts -- per-cell drawing keeps the grid honest.
-            for (i, ch) in chars.enumerated() {
-                let cellOrigin = CGPoint(x: CGFloat(i) * cellWidth, y: y)
-                let glyphStr = NSAttributedString(string: String(ch), attributes: attrs)
-                glyphStr.draw(at: cellOrigin)
+            for c in 0...lastPaint {
+                let cell = c < row.count ? row[c] : Cell()
+                let cellOrigin = CGPoint(x: CGFloat(c) * cellWidth, y: y)
+                if cell.reverse {
+                    NSAttributedString(string: "\u{2588}", attributes: blockAttrs)
+                        .draw(at: cellOrigin)
+                    if cell.character != " " {
+                        NSAttributedString(string: String(cell.character), attributes: reverseGlyphAttrs)
+                            .draw(at: cellOrigin)
+                    }
+                } else if cell.character != " " {
+                    NSAttributedString(string: String(cell.character), attributes: attrs)
+                        .draw(at: cellOrigin)
+                }
             }
-            _ = line // silence unused-let warning
         }
 
         // Cursor: render as a `█` character using the SAME drawing path
