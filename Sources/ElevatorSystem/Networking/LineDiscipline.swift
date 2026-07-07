@@ -77,6 +77,10 @@ final class LineDiscipline {
                         // users whose tty eats CTRL/Z (the same fallback the
                         // screen editor offers).
                         endMailBody()
+                    } else if dcl.helpActive {
+                        // ESC ESC leaves HELP for telnet users whose tty
+                        // eats CTRL/Z.
+                        exitHelp()
                     }
                 } else {
                     escState = .normal
@@ -109,14 +113,19 @@ final class LineDiscipline {
                     cursor = 0
                     historyIndex = nil
                     dcl.abortMailMessage()
+                } else if dcl.helpActive {
+                    exitHelp()
                 } else {
                     cancelLine()
                 }
                 dirty = false
             case 0x1A:
-                // CTRL/Z ends a MAIL message body; harmless elsewhere.
+                // CTRL/Z ends a MAIL message body, exits the HELP browser,
+                // and is harmless elsewhere.
                 if dcl.mailComposingBody {
                     endMailBody()
+                } else if dcl.helpActive {
+                    exitHelp()
                 }
                 dirty = false
             case 0x15:
@@ -200,6 +209,17 @@ final class LineDiscipline {
         historyIndex = nil
         write("\r\n")
         dcl.endMailMessage(partial: line)
+    }
+
+    /// Leave the interactive HELP browser (CTRL/Z, CTRL/C or ESC ESC),
+    /// discarding any half-typed line and redisplaying the DCL prompt.
+    private func exitHelp() {
+        inputBytes.removeAll()
+        cursor = 0
+        historyIndex = nil
+        write("\r\n")
+        dcl.helpExit()
+        dcl.out(dcl.prompt)
     }
 
     private func submitLine() {

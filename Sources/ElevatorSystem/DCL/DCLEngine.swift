@@ -188,6 +188,17 @@ final class DCLEngine: ObservableObject {
     /// recursion.
     var scriptDepth: Int = 0
 
+    // Interactive HELP browser state (see DCLHelp.swift). Mirrors the MAIL
+    // and EDT subshells: while `helpActive` is set, submit() routes each
+    // line to runHelpLine() and the prompt tracks the current topic path
+    // ("Topic?" at the root, "SHOW Subtopic?" one level down). RETURN pops
+    // a level, RETURN at the top exits, CTRL/Z exits from anywhere.
+    var helpActive: Bool = false
+    var helpPath: [String] = []
+    var helpPreviousPrompt: String = "$ "
+    /// The help library, parsed from the `.HLP` source on first use.
+    var helpRootCache: HelpNode? = nil
+
     // EDT editor state -- see DCLEdt.swift.
     var editorActive: Bool = false
     var editorBuffer: [String] = []
@@ -447,6 +458,19 @@ final class DCLEngine: ObservableObject {
             return
         }
 
+        // Interactive HELP browser routes every line to runHelpLine until
+        // RETURN at the top level (or CTRL/Z) leaves it.
+        if helpActive {
+            transcript += "\(prompt)\(raw)\n"
+            let body = runHelpLine(raw)
+            if !body.isEmpty {
+                out(body)
+                if !body.hasSuffix("\n") { out("\n") }
+            }
+            if !loggedOut { out(prompt) }
+            return
+        }
+
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         transcript += "\(prompt)\(line)\n"
         if line.isEmpty {
@@ -621,7 +645,7 @@ final class DCLEngine: ObservableObject {
         succeed()
 
         switch true {
-        case matches(head, "HELP") || head == "?":           return helpText(topic: cmd.positional.first)
+        case matches(head, "HELP") || head == "?":           return helpCommand(cmd)
         case matches(head, "LPDCP", min: 5):                  return lpdcpCmd(cmd)
         case matches(head, "SHOW"):                           return showCmd(cmd)
         case matches(head, "SET"):                            return setCmd(cmd)
