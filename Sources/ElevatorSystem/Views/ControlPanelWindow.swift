@@ -86,7 +86,7 @@ struct ControlPanelWindow: View {
             NSApp.terminate(nil)
             return nil
         case "d":
-            openWindow(id: "dcl")
+            openWindow(id: "dcl", value: DCLSessionID())
             return nil
         case "s":
             openWindow(id: "scene")
@@ -801,7 +801,7 @@ private struct FooterBar: View {
                 showCredits = true
             }
             RetroButton(language.t("window.dcl")) {
-                openWindow(id: "dcl")
+                openWindow(id: "dcl", value: DCLSessionID())
             }
             RetroButton(language.t("window.scene")) {
                 openWindow(id: "scene")

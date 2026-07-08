@@ -6,9 +6,17 @@ import AppKit
 /// `dcl.outputHandler`, keystrokes route back through the line-discipline
 /// coordinator and into `dcl.submit(_:)`.
 struct DCLShellWindow: View {
-    @EnvironmentObject var dcl: DCLEngine
+    // Each terminal window owns its own engine, so every window is an
+    // independent login (its own transcript / symbols / history / MAIL
+    // browse state). The shared world / network / automation / language
+    // objects come from the environment and are wired in via attach().
+    @EnvironmentObject var world: ElevatorWorld
+    @EnvironmentObject var network: PeerNetwork
+    @EnvironmentObject var automation: AutoDriver
     @EnvironmentObject var language: AppLanguage
+    @StateObject private var dcl = DCLEngine()
     @State private var hostWindow: NSWindow?
+    @State private var didAttach = false
 
     var body: some View {
         // The full-screen diagnostic display (DCLDiagnostics.refreshTestDisplay)
@@ -24,6 +32,15 @@ struct DCLShellWindow: View {
             // banner line, the `$ ` prompt after CLEAR) gets hidden
             // behind the chrome.
             .background(WindowAccessor { hostWindow = $0 })
+            .onAppear {
+                // Attach exactly once per window. onAppear can re-fire (e.g.
+                // when the window is re-shown), and attach() repaints the
+                // whole login block, so guard against a second run.
+                guard !didAttach else { return }
+                didAttach = true
+                dcl.attach(world: world, network: network,
+                           automation: automation, language: language)
+            }
             .onChange(of: dcl.loggedOut) { _, loggedOut in
                 // LOGOUT / EXIT closes the DCL window. We delay briefly so
                 // the operator sees the "logged out" line before the

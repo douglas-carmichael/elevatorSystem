@@ -7,7 +7,6 @@ struct ElevatorSystemApp: App {
     @StateObject private var world: ElevatorWorld
     @StateObject private var network: PeerNetwork
     @StateObject private var automation: AutoDriver
-    @StateObject private var dcl: DCLEngine
     @StateObject private var telnet: DCLTelnetServer
     @StateObject private var modbus: ModbusTCPServer
 
@@ -17,14 +16,12 @@ struct ElevatorSystemApp: App {
         let world = ElevatorWorld(localPeerId: peerId, localPeerLabel: label)
         let network = PeerNetwork(peerId: peerId, label: label)
         let automation = AutoDriver()
-        let dcl = DCLEngine()
         let telnet = DCLTelnetServer()
         let modbus = ModbusTCPServer()
         _language = StateObject(wrappedValue: AppLanguage())
         _world = StateObject(wrappedValue: world)
         _network = StateObject(wrappedValue: network)
         _automation = StateObject(wrappedValue: automation)
-        _dcl = StateObject(wrappedValue: dcl)
         _telnet = StateObject(wrappedValue: telnet)
         _modbus = StateObject(wrappedValue: modbus)
     }
@@ -43,7 +40,11 @@ struct ElevatorSystemApp: App {
         .windowResizability(.contentMinSize)
         .restorationDisabled()
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            // Replace the standard File > New with an opener that spawns a
+            // fresh DCL terminal session (each carries its own DCLEngine).
+            CommandGroup(replacing: .newItem) {
+                NewTerminalCommand()
+            }
         }
 
         WindowGroup("Hoistway Synoptic", id: "scene") {
@@ -55,10 +56,19 @@ struct ElevatorSystemApp: App {
         .windowResizability(.contentMinSize)
         .restorationDisabled()
 
-        WindowGroup("DCL Terminal", id: "dcl") {
+        // Data-driven group keyed by DCLSessionID: each distinct session id
+        // opens a separate window, and DCLShellWindow gives each one its own
+        // DCLEngine -- so terminals are fully independent logins (separate
+        // transcript / symbols / history / MAIL browse state), the same way
+        // each telnet connection already gets its own engine.
+        WindowGroup("DCL Terminal", id: "dcl", for: DCLSessionID.self) { _ in
             DCLShellWindow()
                 .environmentObject(language)
-                .environmentObject(dcl)
+                .environmentObject(world)
+                .environmentObject(network)
+                .environmentObject(automation)
+        } defaultValue: {
+            DCLSessionID()
         }
         .windowResizability(.contentMinSize)
         .restorationDisabled()
@@ -89,7 +99,6 @@ struct ElevatorSystemApp: App {
         network.start()
         automation.attach(world: world, network: network)
         automation.start()
-        dcl.attach(world: world, network: network, automation: automation, language: language)
         telnet.attach(world: world, network: network, automation: automation, language: language)
         telnet.start()
         modbus.attach(world: world, network: network, automation: automation, telnet: telnet)
@@ -146,5 +155,26 @@ private extension Scene {
     // user last had on screen.
     func restorationDisabled() -> some Scene {
         self.restorationBehavior(.disabled)
+    }
+}
+
+/// Identifies one DCL terminal window. Each distinct value drives a
+/// separate window in the "dcl" WindowGroup; the fresh UUID means every
+/// open request spawns a new, independent session rather than re-focusing
+/// an existing one (SwiftUI only reuses a window when the presented value
+/// matches one already on screen).
+struct DCLSessionID: Hashable, Codable {
+    var id: UUID = UUID()
+}
+
+/// File menu command that opens a brand-new DCL terminal session. Lives in
+/// a view so it can read the `openWindow` action from the environment.
+private struct NewTerminalCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("New DCL Terminal") {
+            openWindow(id: "dcl", value: DCLSessionID())
+        }
+        .keyboardShortcut("t", modifiers: [.command, .shift])
     }
 }
