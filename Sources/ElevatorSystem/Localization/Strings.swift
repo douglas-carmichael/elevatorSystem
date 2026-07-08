@@ -278,14 +278,18 @@ enum Strings {
                                     "%ACK-W-MISSID, identifiant d'alarme manquant ou ALL")
         add("dcl.ack.alarms.one",   "%ACK-S-ALARMS, 1 active alarm acknowledged",
                                     "%ACK-S-ALARMS, 1 alarme active acquittée")
-        add("dcl.ack.alarms.many",  "%ACK-S-ALARMS, %d active alarms acknowledged",
-                                    "%ACK-S-ALARMS, %d alarmes actives acquittées")
-        add("dcl.ack.invalid",      "%ACK-W-IVID, invalid alarm id %@",
-                                    "%ACK-W-IVID, identifiant d'alarme invalide %@")
-        add("dcl.ack.alarm",        "%ACK-S-ALARM, alarm %@ acknowledged",
-                                    "%ACK-S-ALARM, alarme %@ acquittée")
-        add("dcl.ack.notfound",     "%ACK-W-NOTFOUND, active alarm %@ was not found",
-                                    "%ACK-W-NOTFOUND, alarme active %@ introuvable")
+        // These four are consumed via String(format:), so the leading VMS
+        // facility code must be escaped as %% (matching the %%LPDCP messages
+        // below); otherwise the %A in "%ACK" is read as a printf conversion
+        // and String(format:) traps on the argument-type mismatch.
+        add("dcl.ack.alarms.many",  "%%ACK-S-ALARMS, %d active alarms acknowledged",
+                                    "%%ACK-S-ALARMS, %d alarmes actives acquittées")
+        add("dcl.ack.invalid",      "%%ACK-W-IVID, invalid alarm id %@",
+                                    "%%ACK-W-IVID, identifiant d'alarme invalide %@")
+        add("dcl.ack.alarm",        "%%ACK-S-ALARM, alarm %@ acknowledged",
+                                    "%%ACK-S-ALARM, alarme %@ acquittée")
+        add("dcl.ack.notfound",     "%%ACK-W-NOTFOUND, active alarm %@ was not found",
+                                    "%%ACK-W-NOTFOUND, alarme active %@ introuvable")
 
         // LPD diagnostic test utility (layered product -- localised because
         // an LPD-branded application absolutely would be, even though the

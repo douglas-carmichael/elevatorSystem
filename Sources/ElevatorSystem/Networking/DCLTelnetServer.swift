@@ -89,7 +89,7 @@ final class DCLTelnetServer: ObservableObject {
             conn.cancel()
             return
         }
-        let engine = DCLEngine()
+        let engine = DCLEngine(terminalKind: .network)
         engine.attach(world: world, network: network,
                       automation: automation, language: language)
         // Join the shared session set so the in-universe mail writer is

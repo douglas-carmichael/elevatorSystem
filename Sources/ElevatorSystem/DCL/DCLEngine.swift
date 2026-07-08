@@ -78,8 +78,31 @@ final class DCLEngine: ObservableObject {
     let osTitle: String = "VSI OpenVMS"
     let username: String
     let nodeName: String
-    let terminalName: String = "TT$VTA0418:"
+    /// The session's terminal device, e.g. VTA3: for a local shell window or
+    /// TNA1: for an inbound telnet connection. Allocated per engine so every
+    /// terminal reports a distinct device in SHOW TERMINAL / SHOW USERS /
+    /// SHOW DEVICES (mirroring how OpenVMS names virtual and telnet terminals).
+    let terminalName: String
     let pid: String
+
+    /// What kind of terminal a DCL session is driving, which picks the OpenVMS
+    /// device-name prefix: local shell windows are virtual terminals (VTAn:),
+    /// inbound telnet connections are network terminals (TNAn:).
+    enum TerminalKind {
+        case interactive
+        case network
+    }
+
+    /// Per-process unit counters, one per device prefix, so successive
+    /// sessions get VTA1:, VTA2:, ... and TNA1:, TNA2:, ....
+    private static var terminalUnitCounters: [String: Int] = [:]
+
+    private static func allocateTerminalName(_ kind: TerminalKind) -> String {
+        let prefix = kind == .interactive ? "VTA" : "TNA"
+        let unit = (terminalUnitCounters[prefix] ?? 0) + 1
+        terminalUnitCounters[prefix] = unit
+        return "\(prefix)\(unit):"
+    }
     var lastStatus: String = "%X00000001"
     var lastStatusLabel: String = "SS$_NORMAL"
 
@@ -230,11 +253,12 @@ final class DCLEngine: ObservableObject {
 
     var bootTime: Date { host.bootDate }
 
-    init() {
+    init(terminalKind: TerminalKind = .interactive) {
         let raw = NSUserName()
         let cleaned = raw.uppercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
         self.username = cleaned.isEmpty ? "OPERATOR" : String(cleaned.prefix(12))
         self.pid = String(format: "%08X", Int.random(in: 0x0000_0400...0x0000_04FF))
+        self.terminalName = Self.allocateTerminalName(terminalKind)
         self.defaultDirectory = "[\(self.username)]"
         self.nodeName = Self.makeNodeName()
         if !loadMailbox() {
