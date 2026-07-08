@@ -25,6 +25,7 @@ final class DCLTelnetServer: ObservableObject {
     private weak var network: PeerNetwork?
     private weak var automation: AutoDriver?
     private weak var language: AppLanguage?
+    private weak var sessionCoordinator: DCLSessionCoordinator?
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "net.dcarmichael.elevator.telnet")
@@ -37,11 +38,13 @@ final class DCLTelnetServer: ObservableObject {
     init() {}
 
     func attach(world: ElevatorWorld, network: PeerNetwork,
-                automation: AutoDriver, language: AppLanguage) {
+                automation: AutoDriver, language: AppLanguage,
+                sessionCoordinator: DCLSessionCoordinator) {
         self.world = world
         self.network = network
         self.automation = automation
         self.language = language
+        self.sessionCoordinator = sessionCoordinator
     }
 
     func start() {
@@ -89,10 +92,14 @@ final class DCLTelnetServer: ObservableObject {
         let engine = DCLEngine()
         engine.attach(world: world, network: network,
                       automation: automation, language: language)
+        // Join the shared session set so the in-universe mail writer is
+        // elected across GUI windows and telnet connections alike.
+        sessionCoordinator?.register(engine)
         let session = TelnetSession(connection: conn, engine: engine, queue: queue)
-        session.onClose = { [weak self, weak session] in
+        session.onClose = { [weak self, weak session, engine] in
             guard let self, let session else { return }
             Task { @MainActor in
+                self.sessionCoordinator?.unregister(engine)
                 self.sessions.removeValue(forKey: ObjectIdentifier(session))
             }
         }

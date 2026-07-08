@@ -312,9 +312,11 @@ final class DCLEngine: ObservableObject {
         self.network = network
         self.automation = automation
         self.language = language
-        // Subscribe to world events so the simulated building writes
-        // in-universe status mail (OPCOM / SCADA notices) into the inbox.
-        subscribeInUniverseMail()
+        // In-universe status mail (OPCOM / SCADA notices) is NOT started
+        // here: with several sessions attached to the same world, each would
+        // append its own copy of every event to the shared inbox. A single
+        // writer is elected by DCLSessionCoordinator, which calls
+        // enable/disableInUniverseMail() as sessions come and go.
         // Render the banner now that the language reference is available.
         transcript = ""
         pendingOutput = ""

@@ -14,6 +14,7 @@ struct DCLShellWindow: View {
     @EnvironmentObject var network: PeerNetwork
     @EnvironmentObject var automation: AutoDriver
     @EnvironmentObject var language: AppLanguage
+    @EnvironmentObject var sessions: DCLSessionCoordinator
     @StateObject private var dcl = DCLEngine()
     @State private var hostWindow: NSWindow?
     @State private var didAttach = false
@@ -40,6 +41,12 @@ struct DCLShellWindow: View {
                 didAttach = true
                 dcl.attach(world: world, network: network,
                            automation: automation, language: language)
+                // Join the session set so exactly one live terminal owns the
+                // in-universe status-mail generator (see DCLSessionCoordinator).
+                sessions.register(dcl)
+            }
+            .onDisappear {
+                sessions.unregister(dcl)
             }
             .onChange(of: dcl.loggedOut) { _, loggedOut in
                 // LOGOUT / EXIT closes the DCL window. We delay briefly so

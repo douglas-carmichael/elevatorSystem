@@ -9,6 +9,7 @@ struct ElevatorSystemApp: App {
     @StateObject private var automation: AutoDriver
     @StateObject private var telnet: DCLTelnetServer
     @StateObject private var modbus: ModbusTCPServer
+    @StateObject private var sessions = DCLSessionCoordinator()
 
     init() {
         let peerId = UUID().uuidString
@@ -67,6 +68,7 @@ struct ElevatorSystemApp: App {
                 .environmentObject(world)
                 .environmentObject(network)
                 .environmentObject(automation)
+                .environmentObject(sessions)
         } defaultValue: {
             DCLSessionID()
         }
@@ -99,7 +101,8 @@ struct ElevatorSystemApp: App {
         network.start()
         automation.attach(world: world, network: network)
         automation.start()
-        telnet.attach(world: world, network: network, automation: automation, language: language)
+        telnet.attach(world: world, network: network, automation: automation,
+                      language: language, sessionCoordinator: sessions)
         telnet.start()
         modbus.attach(world: world, network: network, automation: automation, telnet: telnet)
         modbus.start()

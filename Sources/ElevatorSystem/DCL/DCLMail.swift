@@ -463,13 +463,18 @@ extension DCLEngine {
     // strategy. These land in the same inbox the operator reads with MAIL,
     // so the utility has live in-universe traffic to work with.
 
-    func subscribeInUniverseMail() {
+    /// Begin generating in-universe status mail from world events. Only one
+    /// engine should be the writer at a time -- see DCLSessionCoordinator --
+    /// otherwise every open session appends its own copy of each event to the
+    /// shared MAILBOX.JSON. Idempotent: re-enabling re-watermarks against the
+    /// current world state so a fresh writer never backfills the inbox.
+    func enableInUniverseMail() {
         guard let world = world else { return }
         mailWorldCancellables.forEach { $0.cancel() }
         mailWorldCancellables.removeAll()
 
-        // Watermark against the state that already exists at login so we
-        // don't backfill the inbox with mail for pre-existing conditions.
+        // Watermark against the state that already exists now so we don't
+        // backfill the inbox with mail for pre-existing conditions.
         lastMailedAlarmSequence = world.alarmLog.map(\.sequence).max() ?? 0
         lastMailedBuildingMode = world.buildingMode
         lastMailedDispatchMode = world.dispatchMode
@@ -485,6 +490,13 @@ extension DCLEngine {
             .dropFirst()
             .sink { [weak self] mode in self?.mailDispatchModeChange(mode) }
             .store(in: &mailWorldCancellables)
+    }
+
+    /// Stop generating in-universe status mail. The session still reads the
+    /// shared inbox; it just no longer writes the building's notices.
+    func disableInUniverseMail() {
+        mailWorldCancellables.forEach { $0.cancel() }
+        mailWorldCancellables.removeAll()
     }
 
     /// Deliver an in-universe message and, unless a full-screen or compose
