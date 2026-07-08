@@ -18,7 +18,7 @@ extension DCLEngine {
         case matches(what, "TIME"):                return showTime()
         case matches(what, "NETWORK",     min: 3): return showNetwork()
         case matches(what, "QUEUE",       min: 4): return showQueue()
-        case matches(what, "ALARMS",      min: 3): return showAlarms()
+        case matches(what, "ALARMS",      min: 3): return showAlarms(cmd)
         case matches(what, "LOGICAL",     min: 3): return showLogical(cmd)
         case matches(what, "SYMBOL",      min: 3): return showSymbol(cmd)
         case matches(what, "ERROR",       min: 3): return showError()
@@ -140,13 +140,18 @@ extension DCLEngine {
         return s
     }
 
-    func showAlarms() -> String {
-        let alarms = world?.alarmLog ?? []
-        var s = "\n" + String(format: tr("dcl.alarm.title"), stamp(Date())) + "\n"
+    func showAlarms(_ cmd: Parsed) -> String {
+        // Default view mirrors the annunciator/panel: only standing
+        // (uncleared, unshelved) alarms, priority-sorted. /ALL dumps the full
+        // journal -- RTN / CLEARED / SHLVD history included -- for audit. This
+        // is why CLEAR ALL empties the default list but the history survives.
+        let showAll = cmd.hasQualifier("ALL", min: 3)
+        let alarms = showAll ? (world?.alarmLog ?? []) : (world?.activeAlarms ?? [])
+        var s = "\n" + String(format: tr(showAll ? "dcl.alarm.title" : "dcl.alarm.title.active"), stamp(Date())) + "\n"
         s += tr("dcl.alarm.header") + "\n"
         s += "  ----  ---------------------------  ---------  -------  ---------  -------------  ------------------------------\n"
         guard !alarms.isEmpty else {
-            s += tr("dcl.alarm.none") + "\n"
+            s += tr(showAll ? "dcl.alarm.none" : "dcl.alarm.none.active") + "\n"
             return s
         }
         for alarm in alarms.prefix(40) {
@@ -161,6 +166,8 @@ extension DCLEngine {
             s += "  \(id)  \(time)  \(sev)  \(state)  \(source)  \(point)  \(alarmMessage(alarm.message))\n"
         }
         s += "\n" + tr("dcl.alarm.ackhint") + "\n"
+        // In the active view, point the operator at /ALL for cleared history.
+        if !showAll { s += tr("dcl.alarm.allhint") + "\n" }
         return s
     }
 

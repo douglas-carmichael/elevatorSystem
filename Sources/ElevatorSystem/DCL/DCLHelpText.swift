@@ -1105,9 +1105,11 @@ extension HelpLibrary {
 
 2 ALARMS
   Displays the SCADA alarm log, with each alarm's severity, source,
-  point and acknowledgement state.
+  point and acknowledgement state. By default only standing (active,
+  unshelved) alarms are shown; /ALL lists the full journal, including
+  cleared, returned-to-normal (RTN) and shelved (SHLVD) history.
 
-    SHOW ALARMS
+    SHOW ALARMS [/ALL]
 
 2 DIAGNOSTICS
   Displays the results of the most recent diagnostic tests.

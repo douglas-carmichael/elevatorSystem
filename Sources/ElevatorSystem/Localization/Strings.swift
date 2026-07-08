@@ -279,6 +279,10 @@ enum Strings {
         add("dcl.alarm.header",     "  ID    Time                         Severity   State    Source     Point          Message",
                                     "  ID    Heure                        Gravité    État     Source     Point          Message")
         add("dcl.alarm.none",       "  No alarms have been logged.",        "  Aucune alarme n'a été journalisée.")
+        add("dcl.alarm.title.active","Active SCADA alarms at %@",            "Alarmes SCADA actives à %@")
+        add("dcl.alarm.none.active","  No active alarms.",                  "  Aucune alarme active.")
+        add("dcl.alarm.allhint",    "  SHOW ALARMS/ALL lists cleared and shelved history.",
+                                    "  SHOW ALARMS/ALL affiche l'historique effacé et masqué.")
         add("dcl.alarm.ackhint",    "  Acknowledge:  ACKNOWLEDGE ALARM <id>|ALL    Shelve:  SHELVE ALARM <id>   (UNSHELVE to restore)",
                                     "  Acquitter :  ACKNOWLEDGE ALARM <id>|ALL    Masquer :  SHELVE ALARM <id>   (UNSHELVE pour rétablir)")
         // SHELVE / UNSHELVE (ISA-18.2 shelving)
