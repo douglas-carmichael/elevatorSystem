@@ -14,6 +14,7 @@ extension DCLEngine {
         case matches(what, "USERS",       min: 4): return showUsers()
         case matches(what, "DEVICES",     min: 3): return showDevices()
         case matches(what, "MEMORY",      min: 3): return showMemory()
+        case matches(what, "MODBUS",      min: 3): return showModbus()
         case matches(what, "TIME"):                return showTime()
         case matches(what, "NETWORK",     min: 3): return showNetwork()
         case matches(what, "QUEUE",       min: 4): return showQueue()
@@ -173,7 +174,11 @@ extension DCLEngine {
     }
 
     private func alarmStatusLabel(_ alarm: SCADAAlarm) -> String {
-        if alarm.clearedAt != nil { return tr("alarm.status.cleared") }
+        // Mirrors SCADAAlarm.statusLabel precedence with localized text.
+        if alarm.isShelved { return tr("alarm.status.shlvd") }
+        if alarm.clearedAt != nil {
+            return alarm.isAcknowledged ? tr("alarm.status.cleared") : tr("alarm.status.rtn")
+        }
         return alarm.isAcknowledged ? tr("alarm.status.ack") : tr("alarm.status.unack")
     }
 
@@ -451,14 +456,24 @@ extension DCLEngine {
 
     func showMemory() -> String {
         let vm = host.vmStats()
-        let totalMb = Double(host.physicalMemoryBytes) / (1024.0 * 1024.0)
         let procCount = host.processCount()
         let resident = max(1, procCount - 8)
 
+        // VMS accounts for every physical page as free, on the modified list,
+        // or in use -- so the three sum to Total. Derive Free that way (rather
+        // than the raw Mach free_count, which excludes speculative/other
+        // categories) so the row is internally consistent.
+        let totalPages = vm.totalPages
+        let inUse      = min(vm.inUsePages, totalPages)
+        let modified   = min(vm.modifiedPages, totalPages - inUse)
+        let free       = totalPages - inUse - modified
+
         var s = "\n                System Memory Resources on \(stamp(Date()))\n\n"
         s += "Physical Memory Usage (pages):     Total       Free      In Use     Modified\n"
-        s += String(format: "  Main Memory (%8.2fMb)      %8llu   %8llu    %8llu     %8llu\n",
-                    totalMb, vm.totalPages, vm.freePages, vm.inUsePages, vm.modifiedPages)
+        let memLabel = "  Main Memory (\(HostStats.memSize(host.usableMemoryBytes)))"
+            .padding(toLength: 32, withPad: " ", startingAt: 0)
+        s += memLabel + String(format: "%8llu   %8llu    %8llu     %8llu\n",
+                               totalPages, free, inUse, modified)
         s += "\nSlot Usage (slots):                Total       Free   Resident      Swapped\n"
         s += String(format: "  Process Entry Slots             %4d       %4d       %4d            0\n",
                     max(procCount + 32, 160), 32, procCount)
@@ -483,8 +498,24 @@ extension DCLEngine {
                     pgTotal, max(0, pgFree), max(0, pgUse), max(0, pgLarge))
         s += "Paging File Usage (pages):     Free  Reservable      Total\n"
         s += "  DISK$ELEV_SYS:[SYS0.SYSEXE]PAGEFILE.SYS\n"
+        // Back the page file with the host's real swap (sysctl vm.swapusage),
+        // expressed in the same page unit as the rest of the display. Before
+        // macOS activates any swap the sysctl reports zero, so fall back to a
+        // RAM-derived figure to keep the section reading like a live VMS
+        // backing store rather than an empty 0/0/0.
+        let swap = host.swapUsage()
+        let pfFree: UInt64, pfReservable: UInt64, pfTotal: UInt64
+        if swap.totalBytes > 0 {
+            pfTotal      = swap.totalBytes / host.pageSize
+            pfFree       = swap.freeBytes  / host.pageSize
+            pfReservable = pfFree
+        } else {
+            pfTotal      = vm.totalPages
+            pfFree       = vm.freePages
+            pfReservable = vm.freePages + vm.inactivePages
+        }
         s += String(format: "                              %8llu    %8llu   %8llu\n",
-                    vm.freePages, vm.freePages + vm.inactivePages, vm.totalPages)
+                    pfFree, pfReservable, pfTotal)
         return s
     }
 
@@ -492,19 +523,101 @@ extension DCLEngine {
         return "  \(stamp(Date()))\n"
     }
 
+    /// SHOW MODBUS -- lab-facing summary of the Modbus TCP register map so a
+    /// GEII student can wire up mbpoll / pymodbus / OpenPLC / Node-RED
+    /// against the right addresses. Fully localized (reuses the same
+    /// modbus.* strings as the Group Dispatcher legend panel); the
+    /// safety-chain contact names additionally follow the selected safety
+    /// standard (SET STANDARD / UI language).
+    func showModbus() -> String {
+        let n = ModbusTCPServer.maxCabs
+        let sb = ModbusTCPServer.scalarBase
+        // Left-padded address label, then the localized description.
+        func row(_ addr: String, _ text: String) -> String {
+            "    " + addr.padding(toLength: 10, withPad: " ", startingAt: 0) + text + "\n"
+        }
+        func grp(_ g: Int) -> String { "\(g*n)..\(g*n + n - 1)" }
+
+        var s = "\n  " + tr("modbus.legend.title") + "\n"
+        s += "  " + tr("modbus.legend.endpoint") + "\n"
+        s += "  " + String(format: tr("modbus.show.standard"), safetyStandard.label) + "\n\n"
+
+        s += "  " + tr("modbus.legend.coil") + "\n"
+        s += row(grp(0), tr("modbus.reg.dooropen"))
+        s += row(grp(1), tr("modbus.reg.doorclose"))
+        s += row(grp(2), tr("modbus.reg.stop")) + "\n"
+
+        s += "  " + tr("modbus.legend.di") + "\n"
+        s += row(grp(0), tr("modbus.reg.cablocal"))
+        s += row(grp(1), tr("modbus.reg.cabmoving"))
+        s += row(grp(2), tr("modbus.reg.dooropened"))
+        s += row(grp(3), tr("modbus.reg.brake"))
+        s += row(grp(4), tr("modbus.reg.obstructed"))
+        s += row(grp(5), tr("modbus.reg.overload"))
+        s += "  " + tr("modbus.show.safetychain") + "\n"
+        s += row(grp(6),  sterm("safety.contact.doorinterlock"))
+        s += row(grp(7),  sterm("safety.contact.finallimit"))
+        s += row(grp(8),  sterm("safety.contact.governor"))
+        s += row(grp(9),  sterm("safety.contact.gear"))
+        s += row(grp(10), sterm("safety.contact.brake"))
+        s += row(grp(11), sterm("safety.contact.chain")) + "\n"
+
+        s += "  " + tr("modbus.legend.hr") + "\n"
+        s += row(grp(0), tr("modbus.reg.profile"))
+        s += row(grp(1), tr("modbus.reg.cabmode"))
+        s += row(grp(2), tr("modbus.reg.target")) + "\n"
+
+        s += "  " + tr("modbus.legend.ir") + "\n"
+        s += row(grp(0), tr("modbus.reg.position"))
+        s += row(grp(1), tr("modbus.reg.direction"))
+        s += row(grp(2), tr("modbus.reg.doorstate"))
+        s += row(grp(3), tr("modbus.reg.queue"))
+        s += row(grp(4), tr("modbus.reg.doorprog"))
+        s += row(grp(5), tr("modbus.reg.velocity"))
+        s += row(grp(6), tr("modbus.reg.load"))
+        s += row(grp(7), tr("modbus.reg.accel"))
+        s += row("\(sb+0)", tr("modbus.reg.cabcount"))
+        s += row("\(sb+2)", tr("modbus.reg.bldgflrs"))
+        s += row("\(sb+3)", tr("modbus.reg.telnetmb"))
+        s += row("\(sb+5)", tr("modbus.reg.bldgmode"))
+        s += row("\(sb+6)", tr("modbus.reg.recallflr"))
+        s += row("\(sb+7)", tr("modbus.reg.alarms"))
+        s += row("\(sb+9)", tr("modbus.reg.dispatch"))
+        s += row("\(sb+10)", tr("modbus.reg.hallcalls"))
+        s += row("\(sb+11)", tr("modbus.show.unacked"))
+        s += row("\(sb+12)", tr("modbus.show.shelved"))
+        s += row("\(sb+13)", tr("modbus.show.rtn"))
+        return s
+    }
+
     func showNetwork() -> String {
-        var s = "\n  Node     State            Active Links   Delay   Cost   Hops  Name\n"
-        s += "  -----    -----            ------------   -----   ----   ----  ----\n"
-        s += "  1.1      LOCAL                       2       0      0      0  \(nodeName)\n"
+        // Header, separator and every data row share one fixed-width builder
+        // so the columns line up regardless of node-name / count widths:
+        // Node and State are left-aligned; the numeric columns are right-
+        // aligned under their headers (reusing MONITOR's rightPad helper).
+        func row(_ node: String, _ state: String, _ links: String,
+                 _ delay: String, _ cost: String, _ hops: String, _ name: String) -> String {
+            return "  "
+                + node.padding(toLength: 9, withPad: " ", startingAt: 0)
+                + state.padding(toLength: 12, withPad: " ", startingAt: 0)
+                + rightPad(links, width: 12) + "   "
+                + rightPad(delay, width: 5) + "   "
+                + rightPad(cost,  width: 4) + "   "
+                + rightPad(hops,  width: 4) + "  "
+                + name + "\n"
+        }
+        var s = "\n" + row("Node", "State", "Active Links", "Delay", "Cost", "Hops", "Name")
+        s += row("----", "-----", "------------", "-----", "----", "----", "----")
+        s += row("1.1", "LOCAL", "2", "0", "0", "0", nodeName)
         if let peers = network?.peers, !peers.isEmpty {
             for (i, peer) in peers.enumerated() {
                 let addr = "1.\(2 + i)"
                 let upper = peer.displayName.uppercased().filter { $0.isLetter || $0.isNumber || $0 == "_" }
                 let nm = String(upper.prefix(6))
-                s += "  \(addr.padding(toLength: 8, withPad: " ", startingAt: 0)) REACHABLE                1       \(2 + i)      1      1  \(nm)\n"
+                s += row(addr, "REACHABLE", "1", "\(2 + i)", "1", "1", nm)
             }
         } else {
-            s += "  -        -                           -       -      -      -  (no adjacent nodes)\n"
+            s += row("-", "-", "-", "-", "-", "-", "(no adjacent nodes)")
         }
         return s
     }
@@ -616,6 +729,9 @@ extension DCLEngine {
                     upS / 4, upS / 8, upS / 2)
         s += "  Connect time: \(uptimeString(from: bootTime, to: Date()))\n"
         s += "  Building mode: \(buildingModeStatusLine())\n"
+        let stdMode = (language?.standardOverride == nil)
+            ? tr("dcl.set.standard.followlang") : tr("dcl.set.standard.override")
+        s += String(format: tr("dcl.status.standard"), safetyStandard.label, stdMode) + "\n"
         // Per-cab safety overrides (only shown when any cab is non-normal).
         if let cabs = world?.elevators,
            cabs.contains(where: { $0.phaseTwoActive || $0.independentActive }) {
@@ -636,7 +752,7 @@ extension DCLEngine {
         case .normal:
             return "NORMAL"
         case .fireRecall:
-            return "PHASE I FIRE RECALL  (recall floor: \(world.recallFloor))"
+            return "\(sterm("safety.fire"))  (recall floor: \(world.recallFloor))"
         case .emergencyPower:
             let surv = world.epoCabId.flatMap { id in world.elevators.first(where: { $0.id == id }) }
             let label = surv.map { world.displayLabel(for: $0) } ?? "(none)"

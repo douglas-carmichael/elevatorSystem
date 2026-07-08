@@ -74,6 +74,7 @@ struct Options {
     var floors = Sim.floorCount
     var rate = Int(Sim.tickHz)   // state broadcasts / sec; default = sim tick rate (60)
     var quiet = false
+    var injectFaults = false     // occasionally trip a cab's safety chain (demo)
 }
 
 func printUsage() {
@@ -99,6 +100,9 @@ func printUsage() {
       -f, --floors  N   Top floor cabs travel to (2…\(Sim.floorCount), default \(Sim.floorCount))
       -r, --rate    N   State broadcasts / sec (1…\(Int(Sim.tickHz)), default \(Int(Sim.tickHz)))
       -q, --quiet       Suppress per-event logging (banner + heartbeat only)
+      --inject-faults   Occasionally drive a moving cab into a brief overspeed
+                        so the app sees this remote node's Modbus safety-chain
+                        contacts open (training demo). Off by default.
       --socket          Force the mDNS + BSD-socket transport (Linux/Windows
                         default; on macOS this exercises that path against the
                         app). Same as ELEVATORD_TRANSPORT=socket.
@@ -149,6 +153,7 @@ func parseOptions() -> Options {
         case "-f", "--floors": options.floors = takeInt(for: arg)
         case "-r", "--rate":   options.rate = takeInt(for: arg)
         case "-q", "--quiet":  options.quiet = true
+        case "--inject-faults": options.injectFaults = true
         // Verification lever: force the mDNS + socket transport even on Apple.
         // Consumed here so the parser accepts it; read separately via
         // CommandLine when choosing the transport.
@@ -204,7 +209,8 @@ let nodes: [ClusterNode] = (0..<options.nodeCount).map { index in
         nodeLabel = options.nodeCount == 1 ? options.label : "\(options.label)\(index + 1)"
     }
     return ClusterNode(label: nodeLabel, cabCount: options.cabsPerNode, floors: options.floors,
-                       broadcastHz: options.rate, queue: queue, logger: logger, discovery: discovery)
+                       broadcastHz: options.rate, queue: queue, logger: logger, discovery: discovery,
+                       injectFaults: options.injectFaults)
 }
 
 logger.raw("""

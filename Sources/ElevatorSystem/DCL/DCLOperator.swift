@@ -30,6 +30,32 @@ extension DCLEngine {
         return String(format: tr("dcl.ack.notfound"), String(format: "%04d", sequence)) + "\n"
     }
 
+    /// SHELVE ALARM <id>  /  UNSHELVE ALARM <id> -- ISA-18.2 shelving.
+    /// Shelving removes a nuisance alarm from the primary annunciator
+    /// (beacon, panel, active count) while leaving it in the log; UNSHELVE
+    /// restores it. Distinct from ACKNOWLEDGE (which keeps it annunciated).
+    func shelveCmd(_ cmd: Parsed, unshelve: Bool) -> String {
+        guard let world else {
+            return tr("dcl.ack.nosystem") + "\n"
+        }
+        guard let target = cmd.positional.first, matches(target, "ALARM", min: 3) else {
+            return tr(unshelve ? "dcl.unshelve.missalarm" : "dcl.shelve.missalarm") + "\n"
+        }
+        guard cmd.positional.count >= 2 else {
+            return tr(unshelve ? "dcl.unshelve.missid" : "dcl.shelve.missid") + "\n"
+        }
+        guard let sequence = Int(cmd.positional[1]) else {
+            return String(format: tr("dcl.ack.invalid"), cmd.positional[1]) + "\n"
+        }
+        let seqStr = String(format: "%04d", sequence)
+        let ok = unshelve ? world.unshelveAlarm(sequence: sequence)
+                          : world.shelveAlarm(sequence: sequence)
+        if ok {
+            return String(format: tr(unshelve ? "dcl.unshelve.ok" : "dcl.shelve.ok"), seqStr) + "\n"
+        }
+        return String(format: tr("dcl.ack.notfound"), seqStr) + "\n"
+    }
+
     /// ALLOCATE -- claim a device for the current process.
     func allocateCmd(_ cmd: Parsed) -> String {
         guard let raw = cmd.positional.first else {

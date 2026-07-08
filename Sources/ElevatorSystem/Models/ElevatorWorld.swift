@@ -132,16 +132,45 @@ struct SCADAAlarm: Identifiable, Codable, Hashable {
     /// panel skips them. Latched faults (manual fault-injection buttons,
     /// the injector) leave this false and must be cleared by the operator.
     var processDriven: Bool = false
+    /// Operator has shelved this alarm (ISA-18.2 SHLVD): it is removed from
+    /// the primary annunciator -- excluded from the active beacon, the
+    /// unacked count and the panel list -- but remains in the log so the
+    /// action is auditable. Cleared by UNSHELVE. Optional ⇒ Codable stays
+    /// tolerant of peers/persistence written before shelving existed.
+    var shelvedAt: Date? = nil
 
     var isActive: Bool { clearedAt == nil }
     var isAcknowledged: Bool { acknowledgedAt != nil }
+    var isShelved: Bool { shelvedAt != nil && isActive }
     /// A latched fault the operator is expected to CLEAR. Process-driven
     /// alarms self-clear when the field condition returns to normal.
     var isOperatorClearable: Bool { isActive && !processDriven }
+    /// ISA-18.2 alarm state. Precedence: shelved first, then the
+    /// returned-to-normal / cleared pair (a condition that cleared before
+    /// the operator acknowledged is RTN, not CLEARED), then the active
+    /// unacked/acked pair.
     var statusLabel: String {
-        if clearedAt != nil { return "CLEARED" }
+        if isShelved { return "SHLVD" }
+        if clearedAt != nil {
+            return acknowledgedAt == nil ? "RTN" : "CLEARED"
+        }
         return acknowledgedAt == nil ? "UNACK" : "ACK"
     }
+}
+
+/// One cab's chaîne de sécurité (series safety loop) as a PLC reads it:
+/// each contact is `true` when closed / healthy. Derived purely from cab
+/// telemetry (see `Elevator` safety predicates) so it is identical for
+/// local and remote (ClusterDaemon) cabs. Exposed on Modbus DI 96..191.
+struct SafetyChain {
+    let doorInterlock: Bool
+    let finalLimit: Bool
+    let overspeedGovernor: Bool
+    let safetyGear: Bool
+    let brakeProven: Bool
+    /// The whole series loop: every contact closed AND the building not in
+    /// a recall / emergency-power interrupt.
+    let intact: Bool
 }
 
 @MainActor
@@ -215,7 +244,12 @@ final class ElevatorWorld: ObservableObject {
         lastTickAt = now
         enforceBuildingMode()
         for index in elevators.indices {
+            // Capture acceleration as the per-tick velocity delta (floors/s²),
+            // the same definition MONITOR DYNAMICS shows -- computed here once
+            // so it's authoritative for the panel, the scope and Modbus alike.
+            let v0 = elevators[index].velocity
             advance(&elevators[index], dt: dt)
+            elevators[index].acceleration = dt > 0 ? (elevators[index].velocity - v0) / dt : 0
         }
         sampleSystemAlarms()
         sampleCabAlarms(at: now)
@@ -317,13 +351,9 @@ final class ElevatorWorld: ObservableObject {
     /// hardware limit switch in advance() will have already clamped
     /// velocity to zero, so this surfaces the trip to the operator.
     private func sampleTerminalLimitAlarm(for cab: Elevator, source: String) {
-        let atBottom = cab.position <= Double(Sim.firstFloor) + 0.001
-        let atTop = cab.position >= Double(Sim.lastFloor) - 0.001
-        let badBottom = atBottom &&
-            (cab.queue.first.map { $0 < Sim.firstFloor } ?? false)
-        let badTop = atTop &&
-            (cab.queue.first.map { $0 > Sim.lastFloor } ?? false)
-        if badBottom || badTop {
+        // Shares `Elevator.atTerminalOvertravel` with the Modbus final-limit
+        // safety contact so the two can never disagree.
+        if cab.atTerminalOvertravel {
             raiseAlarm(source: source,
                        point: "TERMINAL_LIMIT",
                        severity: .critical,
@@ -340,7 +370,7 @@ final class ElevatorWorld: ObservableObject {
     /// the brake commanded, the brake is dragging or the contactor
     /// has welded -- both critical events.
     private func sampleBrakeHoldAlarm(for cab: Elevator, source: String) {
-        if cab.brakeEngaged && abs(cab.velocity) > 0.10 {
+        if cab.isBrakeDragging {
             raiseAlarm(source: source,
                        point: "BRAKE_HOLD",
                        severity: .critical,
@@ -352,8 +382,7 @@ final class ElevatorWorld: ObservableObject {
     }
 
     private func sampleOverspeedAlarm(for cab: Elevator, source: String) {
-        let limit = cab.profile.travelFloorsPerSecond * 1.15
-        if abs(cab.velocity) > limit {
+        if cab.isOverspeed {
             raiseAlarm(source: source,
                        point: "OVERSPEED",
                        severity: .critical,
@@ -788,9 +817,12 @@ final class ElevatorWorld: ObservableObject {
         elev.ownerPeerId == localPeerId
     }
 
+    /// Alarms currently annunciated: active and NOT shelved. Shelved alarms
+    /// (ISA-18.2 SHLVD) are suppressed from the primary display, the beacon
+    /// and the panel, matching a real DCS.
     var activeAlarms: [SCADAAlarm] {
         alarmLog
-            .filter(\.isActive)
+            .filter { $0.isActive && !$0.isShelved }
             .sorted {
                 if $0.severity != $1.severity { return $0.severity > $1.severity }
                 return $0.raisedAt > $1.raisedAt
@@ -798,7 +830,18 @@ final class ElevatorWorld: ObservableObject {
     }
 
     var unacknowledgedAlarmCount: Int {
-        alarmLog.filter { $0.isActive && !$0.isAcknowledged }.count
+        alarmLog.filter { $0.isActive && !$0.isAcknowledged && !$0.isShelved }.count
+    }
+
+    /// Currently shelved alarms (ISA-18.2 SHLVD). Exposed on Modbus IR 1012.
+    var shelvedAlarms: [SCADAAlarm] {
+        alarmLog.filter(\.isShelved)
+    }
+
+    /// Alarms whose field condition returned to normal before the operator
+    /// acknowledged them (ISA-18.2 RTN). Exposed on Modbus IR 1013.
+    var returnedToNormalUnackedCount: Int {
+        alarmLog.filter { $0.clearedAt != nil && $0.acknowledgedAt == nil }.count
     }
 
     var highestActiveSeverity: AlarmSeverity? {
@@ -903,6 +946,43 @@ final class ElevatorWorld: ObservableObject {
         guard let index = alarmLog.firstIndex(where: { $0.isActive && $0.source == source && $0.point == point }) else { return false }
         alarmLog[index].clearedAt = Date()
         return true
+    }
+
+    /// Shelve an active alarm (ISA-18.2 SHLVD): remove it from the primary
+    /// annunciator while leaving it in the log. Idempotent.
+    @discardableResult
+    func shelveAlarm(sequence: Int) -> Bool {
+        guard let index = alarmLog.firstIndex(where: { $0.sequence == sequence && $0.isActive }) else { return false }
+        if alarmLog[index].shelvedAt == nil { alarmLog[index].shelvedAt = Date() }
+        return true
+    }
+
+    /// Un-shelve an alarm, returning it to the primary annunciator.
+    @discardableResult
+    func unshelveAlarm(sequence: Int) -> Bool {
+        guard let index = alarmLog.firstIndex(where: { $0.sequence == sequence }) else { return false }
+        alarmLog[index].shelvedAt = nil
+        return true
+    }
+
+    /// Assembles a cab's safety-chain contact states for the Modbus
+    /// discrete-input block (each `true` = contact closed / healthy). The
+    /// overall loop is additionally gated on the building being in normal
+    /// mode, so a fire recall / EPO reads as a chain interrupt.
+    func safetyChain(for cab: Elevator) -> SafetyChain {
+        let doorInterlock = cab.doorInterlockLocked
+        let finalLimit    = !cab.atTerminalOvertravel
+        let governor      = !cab.isOverspeed
+        let gear          = governor            // the governor trips the gear
+        let brake         = !cab.isBrakeDragging
+        let intact = doorInterlock && finalLimit && governor && gear && brake
+            && buildingMode == .normal
+        return SafetyChain(doorInterlock: doorInterlock,
+                           finalLimit: finalLimit,
+                           overspeedGovernor: governor,
+                           safetyGear: gear,
+                           brakeProven: brake,
+                           intact: intact)
     }
 
     // MARK: -- Destination dispatch

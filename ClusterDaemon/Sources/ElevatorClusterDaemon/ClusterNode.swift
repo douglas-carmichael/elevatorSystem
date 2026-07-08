@@ -57,7 +57,8 @@ final class ClusterNode {
     private static let statsInterval: TimeInterval = 5.0
 
     init(label: String, cabCount: Int, floors: Int, broadcastHz: Int,
-         queue: DispatchQueue, logger: Logger, discovery: MDNSEngine?) {
+         queue: DispatchQueue, logger: Logger, discovery: MDNSEngine?,
+         injectFaults: Bool = false) {
         let peerId = UUID().uuidString
         self.label = label
         self.peerId = peerId
@@ -65,7 +66,8 @@ final class ClusterNode {
         self.broadcastInterval = 1.0 / Double(broadcastHz)
         self.queue = queue
         self.logger = logger
-        let sim = CabSimulator(ownerPeerId: peerId, cabCount: cabCount, floors: floors)
+        let sim = CabSimulator(ownerPeerId: peerId, cabCount: cabCount, floors: floors,
+                               injectFaults: injectFaults)
         self.sim = sim
         self.link = makePeerLink(peerId: peerId, label: label, queue: queue, logger: logger,
                                  discovery: discovery, cabsProvider: { sim.cabs },

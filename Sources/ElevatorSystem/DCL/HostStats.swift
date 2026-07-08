@@ -10,6 +10,10 @@ final class HostStats {
 
     let bootDate: Date
     let physicalMemoryBytes: UInt64
+    /// Memory the VM manager actually accounts for (`hw.memsize_usable`).
+    /// Slightly less than installed RAM because firmware/hardware reserve a
+    /// slice; basing the page total on it keeps SHOW MEMORY self-consistent.
+    let usableMemoryBytes: UInt64
     let pageSize: UInt64
     let totalPages: UInt64
     let processorCount: Int
@@ -38,6 +42,13 @@ final class HostStats {
         }
 
         self.physicalMemoryBytes = ProcessInfo.processInfo.physicalMemory
+        var usable: UInt64 = 0
+        var usableSize = MemoryLayout<UInt64>.stride
+        if sysctlbyname("hw.memsize_usable", &usable, &usableSize, nil, 0) == 0, usable > 0 {
+            self.usableMemoryBytes = usable
+        } else {
+            self.usableMemoryBytes = ProcessInfo.processInfo.physicalMemory
+        }
         self.processorCount = ProcessInfo.processInfo.processorCount
         self.activeProcessorCount = ProcessInfo.processInfo.activeProcessorCount
 
@@ -45,10 +56,11 @@ final class HostStats {
         host_page_size(mach_host_self(), &ps)
         let pageBytes = UInt64(ps == 0 ? 4096 : ps)
         self.pageSize = pageBytes
-        self.totalPages = self.physicalMemoryBytes / pageBytes
+        self.totalPages = self.usableMemoryBytes / pageBytes
 
-        // CPU brand string -- Intel exposes machdep.cpu.brand_string;
-        // Apple Silicon exposes hw.model and machdep.cpu.brand_string is empty.
+        // CPU brand string -- both Intel and modern Apple Silicon expose
+        // machdep.cpu.brand_string (e.g. "Apple M2 Pro"); hw.model is the
+        // machine model ("Mac14,10") and only used if the brand is missing.
         self.cpuModel = HostStats.readSysctlString("machdep.cpu.brand_string")
             ?? HostStats.readSysctlString("hw.model")
             ?? "Unknown CPU"
@@ -114,6 +126,29 @@ final class HostStats {
             totalPages: totalPages,
             pageSize: pageSize
         )
+    }
+
+    // MARK: -- Swap / paging file
+
+    struct SwapUsage {
+        let totalBytes: UInt64
+        let usedBytes: UInt64
+        let freeBytes: UInt64
+    }
+
+    /// Live macOS swap usage via `sysctl vm.swapusage`, so the DCL
+    /// "Paging File Usage" section reflects the Mac's real backing store
+    /// rather than reusing RAM page counts. Returns all-zero (swap not yet
+    /// activated by the kernel) if the sysctl is unavailable.
+    func swapUsage() -> SwapUsage {
+        var swap = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.stride
+        guard sysctlbyname("vm.swapusage", &swap, &size, nil, 0) == 0 else {
+            return SwapUsage(totalBytes: 0, usedBytes: 0, freeBytes: 0)
+        }
+        return SwapUsage(totalBytes: swap.xsu_total,
+                         usedBytes: swap.xsu_used,
+                         freeBytes: swap.xsu_avail)
     }
 
     // MARK: -- CPU usage
@@ -267,6 +302,22 @@ final class HostStats {
     }
 
     // MARK: -- helpers
+
+    /// Formats a byte count the way modern OpenVMS SHOW MEMORY reports
+    /// installed memory: the largest binary unit that keeps the mantissa
+    /// >= 1, scaling from Kb all the way up to Eb (the ceiling of a 64-bit
+    /// byte count). Two-decimal mantissa, e.g. 33286717440 -> "31.00Gb".
+    static func memSize(_ bytes: UInt64) -> String {
+        let units = ["Kb", "Mb", "Gb", "Tb", "Pb", "Eb"]
+        if bytes < 1024 { return "\(bytes) bytes" }
+        var value = Double(bytes)
+        var idx = -1
+        while value >= 1024.0 && idx < units.count - 1 {
+            value /= 1024.0
+            idx += 1
+        }
+        return String(format: "%.2f%@", value, units[idx])
+    }
 
     private static func readSysctlString(_ name: String) -> String? {
         var size: size_t = 0

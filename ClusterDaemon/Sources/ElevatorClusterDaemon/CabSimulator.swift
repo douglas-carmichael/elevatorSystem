@@ -17,9 +17,18 @@ final class CabSimulator {
     private let topFloor: Int
     private var nextDecisionAt: [UUID: Date] = [:]
 
-    init(ownerPeerId: String, cabCount: Int, floors: Int) {
+    /// When true, the node occasionally drives a moving cab into a brief
+    /// overspeed excursion so a watching app sees this *remote* node's Modbus
+    /// safety-chain contacts (governor / safety gear / chain-intact) open --
+    /// a training demo of cluster-wide safety telemetry. Off by default.
+    private let injectFaults: Bool
+    private var faultUntil: [UUID: Date] = [:]
+    private var nextFaultAt: Date?
+
+    init(ownerPeerId: String, cabCount: Int, floors: Int, injectFaults: Bool = false) {
         self.ownerPeerId = ownerPeerId
         self.topFloor = max(2, min(Sim.floorCount, floors))
+        self.injectFaults = injectFaults
         spawn(count: max(1, cabCount))
     }
 
@@ -47,10 +56,39 @@ final class CabSimulator {
     }
 
     func tick(dt: Double, now: Date) {
+        if injectFaults { maybeInjectFault(now: now) }
         for index in cabs.indices {
             autoDecide(&cabs[index], now: now)
+            // Acceleration is the per-tick velocity delta (floors/s²), the same
+            // definition the app's MONITOR DYNAMICS and Modbus IR use.
+            let v0 = cabs[index].velocity
             advance(&cabs[index], dt: dt)
+            // Hold an injected overspeed fault: report a velocity past the
+            // governor trip (1.15× rated) so the app's safety-chain contacts
+            // for this remote cab open for the fault window.
+            if let until = faultUntil[cabs[index].id], now < until,
+               abs(cabs[index].velocity) > 0.05 {
+                let sign: Double = cabs[index].velocity >= 0 ? 1 : -1
+                cabs[index].velocity = sign * cabs[index].profile.travelFloorsPerSecond * 1.30
+            }
+            cabs[index].acceleration = dt > 0 ? (cabs[index].velocity - v0) / dt : 0
         }
+    }
+
+    /// Schedules and starts occasional overspeed faults (only when
+    /// `injectFaults` is set). Picks a currently-moving cab so the excursion
+    /// is visible, holds it for a couple of seconds, then re-arms.
+    private func maybeInjectFault(now: Date) {
+        guard let due = nextFaultAt else {
+            nextFaultAt = now.addingTimeInterval(Double.random(in: 8...20))
+            return
+        }
+        guard now >= due else { return }
+        let movers = cabs.indices.filter { abs(cabs[$0].velocity) > 0.3 }
+        if let idx = movers.randomElement() {
+            faultUntil[cabs[idx].id] = now.addingTimeInterval(Double.random(in: 2.0...4.0))
+        }
+        nextFaultAt = now.addingTimeInterval(Double.random(in: 15...35))
     }
 
     /// Apply a remote-control request forwarded by a peer (the app) to one

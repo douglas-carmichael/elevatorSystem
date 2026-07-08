@@ -209,13 +209,24 @@ extension DCLEngine {
 
     func mailDirectory() -> String {
         if mailbox.isEmpty { return "%MAIL-E-NOMSGS, no messages\n" }
-        var s = "\n     #  From            Date              Subject\n"
-        s +=   "     --  --------------  ----------------  --------------------------------\n"
+        // Header and rule are built from the same field widths as the data
+        // rows below (num=3, from=14, date=16, subject=32) so every column
+        // label lines up over its values. The data prefix " %@%@ %3d  " is
+        // 9 characters wide, so the From column starts at column 9.
+        let fromW = 14, whenW = 16, subjW = 32
+        var s = "\n      #  "
+              + "From".padding(toLength: fromW, withPad: " ", startingAt: 0)
+              + "  " + "Date".padding(toLength: whenW, withPad: " ", startingAt: 0)
+              + "  Subject\n"
+        s +=   "    " + String(repeating: "-", count: 3)
+              + "  " + String(repeating: "-", count: fromW)
+              + "  " + String(repeating: "-", count: whenW)
+              + "  " + String(repeating: "-", count: subjW) + "\n"
         for m in mailbox {
             let cur  = (m.id == mailCurrentId) ? ">" : " "
             let mark = m.read ? " " : "N"
-            let from = m.from.padding(toLength: 14, withPad: " ", startingAt: 0)
-            let when = stamp(m.received).padding(toLength: 16, withPad: " ", startingAt: 0)
+            let from = m.from.padding(toLength: fromW, withPad: " ", startingAt: 0)
+            let when = stamp(m.received).padding(toLength: whenW, withPad: " ", startingAt: 0)
             let subj = m.subject.count > 32 ? String(m.subject.prefix(29)) + "..." : m.subject
             s += String(format: " %@%@ %3d  %@  %@  %@\n", cur, mark, m.id, from, when, subj)
         }

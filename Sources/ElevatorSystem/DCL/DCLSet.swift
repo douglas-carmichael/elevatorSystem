@@ -14,9 +14,37 @@ extension DCLEngine {
         case matches(what, "NOVERIFY", min: 3): return ""
         case matches(what, "PASSWORD", min: 4): return setPassword()
         case matches(what, "PROCESS", min: 4):  return setProcess(cmd)
+        case matches(what, "STANDARD", min: 3): return setStandard(cmd)
         default:
             return noPriv("SET \(what)")
         }
+    }
+
+    /// SET STANDARD ASME | EN81 | AUTO
+    ///
+    /// Chooses which lift-safety standard's terminology the UI presents.
+    /// AUTO (the default) follows the UI language: French → EN 81, English
+    /// → ASME A17.1. Affects SHOW MODBUS contact names, the safety-chain
+    /// labels and the fire-recall status line.
+    func setStandard(_ cmd: Parsed) -> String {
+        guard let language else { return noPriv("SET STANDARD") }
+        guard let arg = cmd.positional.dropFirst().first?.uppercased() else {
+            return tr("dcl.set.standard.usage") + "\n"
+        }
+        switch arg {
+        case "ASME", "A17", "A17.1":
+            language.standardOverride = .asme
+        case "EN81", "EN-81", "EN":
+            language.standardOverride = .en81
+        case "AUTO", "LANGUAGE", "DEFAULT":
+            language.standardOverride = nil
+        default:
+            return String(format: tr("dcl.set.standard.bad"), arg) + "\n"
+        }
+        let modeKey = language.standardOverride == nil
+            ? "dcl.set.standard.followlang" : "dcl.set.standard.override"
+        return String(format: tr("dcl.set.standard.ok"),
+                      language.standard.label, tr(modeKey)) + "\n"
     }
 
     /// SET BUILDING /FIRE_RECALL=ON|OFF [/FLOOR=n]

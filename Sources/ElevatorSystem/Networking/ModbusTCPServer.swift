@@ -33,6 +33,14 @@ import Network
 ///     48..63   Cab[0..15]  holding brake engaged
 ///     64..79   Cab[0..15]  door light-curtain obstructed
 ///     80..95   Cab[0..15]  platform overload  (load > 110% rated)
+///   -- Chaîne de sécurité (safety chain), 1 = contact closed / healthy.
+///      Derived from cab telemetry, so faithful for remote cabs too:
+///     96..111  Cab[0..15]  door interlock locked
+///     112..127 Cab[0..15]  final (terminal) limit OK
+///     128..143 Cab[0..15]  overspeed governor OK
+///     144..159 Cab[0..15]  safety gear not tripped
+///     160..175 Cab[0..15]  holding brake proven
+///     176..191 Cab[0..15]  safety chain intact (series loop, incl. bldg mode)
 ///
 ///   Holding registers (16-bit, R/W) -- FC 03 read, FC 06 write:
 ///     0..15    Cab[0..15]  Profile      (0 = PAX,    1 = Freight)
@@ -47,6 +55,7 @@ import Network
 ///     64..79   Cab[0..15]  Door progress (0..100 percent)
 ///     80..95   Cab[0..15]  Cab velocity x100 (signed Int16)
 ///     96..111  Cab[0..15]  Platform load (kg)
+///     112..127 Cab[0..15]  Cab acceleration x100 (signed Int16, floors/s²)
 ///     1000    Number of cabs registered
 ///     1001    Number of remote peers connected
 ///     1002    Building floor count (top floor)
@@ -54,10 +63,13 @@ import Network
 ///     1004    Number of Modbus clients connected
 ///     1005    Building safety mode  (0=normal, 1=fire, 2=EPO)
 ///     1006    Recall floor
-///     1007    Active SCADA alarm count
+///     1007    Active SCADA alarm count (excludes shelved)
 ///     1008    Highest active severity (0=none, 1=Advisory, 2=Minor, 3=Major, 4=Critical)
 ///     1009    Dispatch mode (0=collective, 1=destination)
 ///     1010    Active hall-call count
+///     1011    Unacknowledged alarm count (ISA-18.2 UNACK)
+///     1012    Shelved alarm count       (ISA-18.2 SHLVD)
+///     1013    Returned-to-normal, unacknowledged count (ISA-18.2 RTN)
 ///
 /// Function codes accepted: FC 01/02/03/04/05/06/0F/10. Anything else
 /// returns exception 0x01 (illegal function). The unit-id (slave address)
@@ -104,10 +116,10 @@ final class ModbusTCPServer: ObservableObject {
     static let defaultPort: UInt16 = 5020
     static let maxCabs: Int = 16
     /// Number of per-cab input-register fields (position, direction, door
-    /// state, queue depth, door progress, velocity, load). The cab-indexed
-    /// IR block therefore spans `0 ..< irCabFieldCount * maxCabs`; the
-    /// building-wide scalar registers live above it at `scalarBase`.
-    static let irCabFieldCount: Int = 7
+    /// state, queue depth, door progress, velocity, load, acceleration). The
+    /// cab-indexed IR block therefore spans `0 ..< irCabFieldCount * maxCabs`;
+    /// the building-wide scalar registers live above it at `scalarBase`.
+    static let irCabFieldCount: Int = 8
     /// First address of the building-wide scalar input registers. Placed
     /// at a round 1000, well clear of the cab-indexed block
     /// (`irCabFieldCount * maxCabs = 112`), so the cab map has ample
@@ -538,6 +550,18 @@ final class ModbusClient {
         case 3: return c.brakeEngaged
         case 4: return c.doorObstructed
         case 5: return c.loadKg > c.profile.ratedLoadKg * 1.10
+        case 6...11:
+            // Chaîne de sécurité contacts (1 = closed / healthy), derived
+            // from cab telemetry so they are faithful for remote cabs too.
+            guard let chain = world?.safetyChain(for: c) else { return false }
+            switch group {
+            case 6:  return chain.doorInterlock
+            case 7:  return chain.finalLimit
+            case 8:  return chain.overspeedGovernor
+            case 9:  return chain.safetyGear
+            case 10: return chain.brakeProven
+            default: return chain.intact          // group 11
+            }
         default: return false
         }
     }
@@ -610,6 +634,10 @@ final class ModbusClient {
                 return UInt16(bitPattern: Int16(clamped))
             case 6:                                 // platform load (kg)
                 return UInt16(max(0, min(0xFFFF, Int(c.loadKg.rounded()))))
+            case 7:                                 // acceleration x 100 (signed)
+                let a = Int(c.acceleration * 100.0)
+                let clamped = max(-32768, min(32767, a))
+                return UInt16(bitPattern: Int16(clamped))
             default:
                 return 0
             }
@@ -641,6 +669,12 @@ final class ModbusClient {
             guard let s = world?.highestActiveSeverity else { return 0 }
             return UInt16(s.rawValue + 1)
         case 10: return UInt16(min(0xFFFF, world?.hallCalls.count ?? 0))
+        case 11:                                    // Unacknowledged alarms
+            return UInt16(min(0xFFFF, world?.unacknowledgedAlarmCount ?? 0))
+        case 12:                                    // Shelved alarms (ISA-18.2)
+            return UInt16(min(0xFFFF, world?.shelvedAlarms.count ?? 0))
+        case 13:                                    // Returned-to-normal, unacked
+            return UInt16(min(0xFFFF, world?.returnedToNormalUnackedCount ?? 0))
         default:  return 0
         }
     }

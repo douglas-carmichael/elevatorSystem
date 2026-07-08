@@ -103,6 +103,10 @@ struct Elevator: Identifiable, Codable, Hashable {
     /// up. Driven by the trapezoidal velocity profile in
     /// ElevatorWorld.advance() and surfaced by MONITOR DYNAMICS.
     var velocity: Double = 0
+    /// Current cab acceleration in floors / second², the per-tick change in
+    /// `velocity`. Signed (positive = speeding up in the +position sense).
+    /// Surfaced by MONITOR DYNAMICS and Modbus IR.
+    var acceleration: Double = 0
     /// Holding brake state. ASME A17.1 §2.24 requires the brake to
     /// remain set whenever the car is stopped at a landing and to be
     /// released only after the motor controller has built up holding
@@ -126,7 +130,7 @@ struct Elevator: Identifiable, Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, label, ownerPeerId, automatic, profile, position, queue
         case doors, doorProgress, doorDwellRemaining, direction
-        case phaseTwoActive, independentActive, velocity
+        case phaseTwoActive, independentActive, velocity, acceleration
         case brakeEngaged, doorObstructed, loadKg
     }
 
@@ -135,7 +139,7 @@ struct Elevator: Identifiable, Codable, Hashable {
          doors: DoorState, doorProgress: Double, doorDwellRemaining: Double,
          direction: Direction,
          phaseTwoActive: Bool = false, independentActive: Bool = false,
-         velocity: Double = 0,
+         velocity: Double = 0, acceleration: Double = 0,
          brakeEngaged: Bool = true, doorObstructed: Bool = false,
          loadKg: Double = 0) {
         self.id = id
@@ -152,6 +156,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         self.phaseTwoActive = phaseTwoActive
         self.independentActive = independentActive
         self.velocity = velocity
+        self.acceleration = acceleration
         self.brakeEngaged = brakeEngaged
         self.doorObstructed = doorObstructed
         self.loadKg = loadKg
@@ -176,6 +181,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         phaseTwoActive = try c.decodeIfPresent(Bool.self, forKey: .phaseTwoActive) ?? false
         independentActive = try c.decodeIfPresent(Bool.self, forKey: .independentActive) ?? false
         velocity = try c.decodeIfPresent(Double.self, forKey: .velocity) ?? 0
+        acceleration = try c.decodeIfPresent(Double.self, forKey: .acceleration) ?? 0
         brakeEngaged = try c.decodeIfPresent(Bool.self, forKey: .brakeEngaged) ?? true
         doorObstructed = try c.decodeIfPresent(Bool.self, forKey: .doorObstructed) ?? false
         loadKg = try c.decodeIfPresent(Double.self, forKey: .loadKg) ?? 0
@@ -238,5 +244,40 @@ struct Elevator: Identifiable, Codable, Hashable {
             doors = .closing
             doorProgress = 1.0 - doorProgress
         }
+    }
+
+    // MARK: -- Safety-chain predicates
+    //
+    // Pure functions of cab telemetry, shared by the SCADA alarm samplers
+    // (ElevatorWorld.sample*Alarm) and the Modbus safety-chain discrete
+    // inputs, so a chaîne-de-sécurité contact and its alarm can never
+    // disagree. Because they read only fields carried on the peer wire,
+    // they hold for remote (ClusterDaemon) cabs exactly as for local ones.
+
+    /// Overspeed governor tripping condition: cab speed 15% over the
+    /// profile's rated speed (ASME A17.1 §2.17 / EN 81-20 §5.6.2.2 margin).
+    var isOverspeed: Bool {
+        abs(velocity) > profile.travelFloorsPerSecond * 1.15
+    }
+
+    /// Holding brake dragging -- commanded set while the car is moving.
+    var isBrakeDragging: Bool {
+        brakeEngaged && abs(velocity) > 0.10
+    }
+
+    /// Landing/car door interlock proven: the car is at rest with doors
+    /// fully closed and locked. The series safety chain only closes here.
+    var doorInterlockLocked: Bool {
+        doors == .closed
+    }
+
+    /// Car sitting on a terminal landing with a queued target beyond it --
+    /// the condition the final (terminal) limit switch guards against.
+    var atTerminalOvertravel: Bool {
+        let atBottom = position <= Double(Sim.firstFloor) + 0.001
+        let atTop = position >= Double(Sim.lastFloor) - 0.001
+        let badBottom = atBottom && (queue.first.map { $0 < Sim.firstFloor } ?? false)
+        let badTop = atTop && (queue.first.map { $0 > Sim.lastFloor } ?? false)
+        return badBottom || badTop
     }
 }

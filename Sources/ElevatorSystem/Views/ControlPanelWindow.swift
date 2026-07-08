@@ -949,63 +949,102 @@ private struct ModbusLegendOverlay: View {
     @EnvironmentObject var language: AppLanguage
 
     var body: some View {
-        ZStack {
-            RetroTheme.bg.opacity(0.9).ignoresSafeArea()
-            BoxPanel(title: language.t("modbus.legend.title"), accent: RetroTheme.cyan) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(language.t("modbus.legend.endpoint"))
-                        .font(RetroTheme.monoSm)
-                        .foregroundColor(RetroTheme.amberDim)
-                    Spacer().frame(height: 4)
+        GeometryReader { geo in
+            ZStack {
+                RetroTheme.bg.opacity(0.9).ignoresSafeArea()
+                BoxPanel(title: language.t("modbus.legend.title"), accent: RetroTheme.cyan) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(language.t("modbus.legend.endpoint"))
+                            .font(RetroTheme.monoSm)
+                            .foregroundColor(RetroTheme.amberDim)
+                        Spacer().frame(height: 4)
 
-                    section(language.t("modbus.legend.ir"))
-                    row("0..15",   language.t("modbus.reg.position"))
-                    row("16..31",  language.t("modbus.reg.direction"))
-                    row("32..47",  language.t("modbus.reg.doorstate"))
-                    row("48..63",  language.t("modbus.reg.queue"))
-                    row("64..79",  language.t("modbus.reg.doorprog"))
-                    row("80..95",  language.t("modbus.reg.velocity"))
-                    row("96..111", language.t("modbus.reg.load"))
-                    row("1000",    language.t("modbus.reg.cabcount"))
-                    row("1002",    language.t("modbus.reg.bldgflrs"))
-                    row("1003",    language.t("modbus.reg.telnetmb"))
-                    row("1005",    language.t("modbus.reg.bldgmode"))
-                    row("1006",    language.t("modbus.reg.recallflr"))
-                    row("1007",    language.t("modbus.reg.alarms"))
-                    row("1009",    language.t("modbus.reg.dispatch"))
-                    row("1010",    language.t("modbus.reg.hallcalls"))
+                        // Two columns so the (now taller) map fits without
+                        // running off the bottom: telemetry/setpoints on the
+                        // left, command + status/safety-chain bits on the
+                        // right. Scrolls if the window is too short to show it
+                        // all (the minimum 920x620 window can't fit it whole).
+                        ScrollView {
+                            HStack(alignment: .top, spacing: 28) {
+                                inputAndHoldingColumn
+                                coilAndDiscreteColumn
+                            }
+                        }
 
-                    Spacer().frame(height: 4)
-                    section(language.t("modbus.legend.hr"))
-                    row("0..15",   language.t("modbus.reg.profile"))
-                    row("16..31",  language.t("modbus.reg.cabmode"))
-                    row("32..47",  language.t("modbus.reg.target"))
-
-                    Spacer().frame(height: 4)
-                    section(language.t("modbus.legend.coil"))
-                    row("0..15",   language.t("modbus.reg.dooropen"))
-                    row("16..31",  language.t("modbus.reg.doorclose"))
-                    row("32..47",  language.t("modbus.reg.stop"))
-
-                    Spacer().frame(height: 4)
-                    section(language.t("modbus.legend.di"))
-                    row("0..15",   language.t("modbus.reg.cablocal"))
-                    row("16..31",  language.t("modbus.reg.cabmoving"))
-                    row("32..47",  language.t("modbus.reg.dooropened"))
-                    row("48..63",  language.t("modbus.reg.brake"))
-                    row("64..79",  language.t("modbus.reg.obstructed"))
-                    row("80..95",  language.t("modbus.reg.overload"))
-
-                    Spacer().frame(height: 8)
-                    Text(language.t("help.dismiss"))
-                        .font(RetroTheme.monoSm)
-                        .foregroundColor(RetroTheme.amberDim)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        Spacer().frame(height: 8)
+                        Text(language.t("help.dismiss"))
+                            .font(RetroTheme.monoSm)
+                            .foregroundColor(RetroTheme.amberDim)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .frame(width: min(828, geo.size.width - 80))
                 }
-                .frame(width: 560)
+                .frame(maxHeight: geo.size.height - 48)
+                .onTapGesture { onDismiss() }
             }
-            .onTapGesture { onDismiss() }
         }
+    }
+
+    /// Left column: input registers (telemetry) + holding registers (setpoints).
+    private var inputAndHoldingColumn: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            section(language.t("modbus.legend.ir"))
+            row("0..15",   language.t("modbus.reg.position"))
+            row("16..31",  language.t("modbus.reg.direction"))
+            row("32..47",  language.t("modbus.reg.doorstate"))
+            row("48..63",  language.t("modbus.reg.queue"))
+            row("64..79",  language.t("modbus.reg.doorprog"))
+            row("80..95",  language.t("modbus.reg.velocity"))
+            row("96..111", language.t("modbus.reg.load"))
+            row("112..127",language.t("modbus.reg.accel"))
+            row("1000",    language.t("modbus.reg.cabcount"))
+            row("1002",    language.t("modbus.reg.bldgflrs"))
+            row("1003",    language.t("modbus.reg.telnetmb"))
+            row("1005",    language.t("modbus.reg.bldgmode"))
+            row("1006",    language.t("modbus.reg.recallflr"))
+            row("1007",    language.t("modbus.reg.alarms"))
+            row("1009",    language.t("modbus.reg.dispatch"))
+            row("1010",    language.t("modbus.reg.hallcalls"))
+            row("1011",    language.t("modbus.show.unacked"))
+            row("1012",    language.t("modbus.show.shelved"))
+            row("1013",    language.t("modbus.show.rtn"))
+
+            Spacer().frame(height: 4)
+            section(language.t("modbus.legend.hr"))
+            row("0..15",   language.t("modbus.reg.profile"))
+            row("16..31",  language.t("modbus.reg.cabmode"))
+            row("32..47",  language.t("modbus.reg.target"))
+        }
+        .frame(width: 400, alignment: .leading)
+    }
+
+    /// Right column: coils (commands) + discrete inputs (status + safety chain).
+    private var coilAndDiscreteColumn: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            section(language.t("modbus.legend.coil"))
+            row("0..15",   language.t("modbus.reg.dooropen"))
+            row("16..31",  language.t("modbus.reg.doorclose"))
+            row("32..47",  language.t("modbus.reg.stop"))
+
+            Spacer().frame(height: 4)
+            section(language.t("modbus.legend.di"))
+            row("0..15",   language.t("modbus.reg.cablocal"))
+            row("16..31",  language.t("modbus.reg.cabmoving"))
+            row("32..47",  language.t("modbus.reg.dooropened"))
+            row("48..63",  language.t("modbus.reg.brake"))
+            row("64..79",  language.t("modbus.reg.obstructed"))
+            row("80..95",  language.t("modbus.reg.overload"))
+            // Chaîne de sécurité (1 = contact closed / healthy). Names
+            // follow the selected safety standard (ASME / EN 81).
+            section(language.t("modbus.show.safetychain"))
+            row("96..111",  language.safetyTerm("safety.contact.doorinterlock"))
+            row("112..127", language.safetyTerm("safety.contact.finallimit"))
+            row("128..143", language.safetyTerm("safety.contact.governor"))
+            row("144..159", language.safetyTerm("safety.contact.gear"))
+            row("160..175", language.safetyTerm("safety.contact.brake"))
+            row("176..191", language.safetyTerm("safety.contact.chain"))
+        }
+        .frame(width: 400, alignment: .leading)
     }
 
     private func section(_ text: String) -> some View {

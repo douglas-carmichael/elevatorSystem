@@ -141,6 +141,8 @@ enum Strings {
                                      "profondeur file")
         add("modbus.reg.doorprog",   "door progress %",
                                      "progression portes %")
+        add("modbus.reg.accel",      "acceleration × 100 (signed, floors/s²)",
+                                     "accélération × 100 (signé, étages/s²)")
         add("modbus.reg.velocity",   "velocity × 100 (signed Int16)",
                                      "vitesse × 100 (Int16 signé)")
         add("modbus.reg.cabcount",   "cab count   /  1001 peer count",
@@ -185,6 +187,13 @@ enum Strings {
                                      "charge plateau (kg)")
         add("modbus.reg.overload",   "cab over 110% rated load",
                                      "cabine en surcharge (>110%)")
+        // SHOW MODBUS -- lines specific to the terminal listing
+        add("modbus.show.standard",  "Safety standard: %@",                 "Norme de sécurité : %@")
+        add("modbus.show.safetychain","SAFETY CHAIN  (FC 02, 1 = contact closed / healthy)",
+                                     "CHAÎNE DE SÉCURITÉ  (FC 02, 1 = contact fermé / sain)")
+        add("modbus.show.unacked",   "unacknowledged alarms",               "alarmes non acquittées")
+        add("modbus.show.shelved",   "shelved alarms (SHLVD)",              "alarmes masquées (SHLVD)")
+        add("modbus.show.rtn",       "returned-to-normal, unacked (RTN)",   "retour à la normale, non acq. (RAN)")
         add("help.k.esc",           "Close this overlay",                  "Fermer cette aide")
         add("help.dismiss",         "PRESS  ESC  TO DISMISS",              "APPUYEZ SUR ESC POUR FERMER")
         add("help.focus.hint",      "FOCUSED CAB",                         "CABINE FOCALISÉE")
@@ -244,6 +253,8 @@ enum Strings {
         add("alarm.status.unack",   "UNACK",                               "NON ACQ.")
         add("alarm.status.ack",     "ACK",                                 "ACQ.")
         add("alarm.status.cleared", "CLEARED",                             "EFFACÉE")
+        add("alarm.status.rtn",     "RTN",                                 "RAN")
+        add("alarm.status.shlvd",   "SHLVD",                               "MASQ.")
         add("alarm.sev.advisory",   "ADVISORY",                            "INFO")
         add("alarm.sev.minor",      "MINOR",                               "MINEURE")
         add("alarm.sev.major",      "MAJOR",                               "MAJEURE")
@@ -268,8 +279,57 @@ enum Strings {
         add("dcl.alarm.header",     "  ID    Time                         Severity   State    Source     Point          Message",
                                     "  ID    Heure                        Gravité    État     Source     Point          Message")
         add("dcl.alarm.none",       "  No alarms have been logged.",        "  Aucune alarme n'a été journalisée.")
-        add("dcl.alarm.ackhint",    "  Acknowledge with:  ACKNOWLEDGE ALARM <id>   or   ACKNOWLEDGE ALARM ALL",
-                                    "  Acquitter avec :  ACKNOWLEDGE ALARM <id>   ou   ACKNOWLEDGE ALARM ALL")
+        add("dcl.alarm.ackhint",    "  Acknowledge:  ACKNOWLEDGE ALARM <id>|ALL    Shelve:  SHELVE ALARM <id>   (UNSHELVE to restore)",
+                                    "  Acquitter :  ACKNOWLEDGE ALARM <id>|ALL    Masquer :  SHELVE ALARM <id>   (UNSHELVE pour rétablir)")
+        // SHELVE / UNSHELVE (ISA-18.2 shelving)
+        add("dcl.shelve.missalarm", "%SHELVE-W-MISSING, specify  SHELVE ALARM <id>",
+                                    "%SHELVE-W-MISSING, préciser  SHELVE ALARM <id>")
+        add("dcl.shelve.missid",    "%SHELVE-W-NOID, missing alarm id -- SHELVE ALARM <id>",
+                                    "%SHELVE-W-NOID, id d'alarme manquant -- SHELVE ALARM <id>")
+        // Consumed via String(format:), so the leading VMS facility code is
+        // escaped as %%SHELVE (the .missalarm/.missid variants above are output
+        // directly and keep their single %); otherwise the %S in "%SHELVE" is
+        // read as a printf conversion and String(format:) traps on the argument.
+        add("dcl.shelve.ok",        "%%SHELVE-S-SHELVED, alarm %@ shelved (removed from annunciator)",
+                                    "%%SHELVE-S-SHELVED, alarme %@ masquée (retirée de l'annonciateur)")
+        add("dcl.unshelve.missalarm","%UNSHELVE-W-MISSING, specify  UNSHELVE ALARM <id>",
+                                    "%UNSHELVE-W-MISSING, préciser  UNSHELVE ALARM <id>")
+        add("dcl.unshelve.missid",  "%UNSHELVE-W-NOID, missing alarm id -- UNSHELVE ALARM <id>",
+                                    "%UNSHELVE-W-NOID, id d'alarme manquant -- UNSHELVE ALARM <id>")
+        // Also consumed via String(format:) -- escape the leading % as %%UNSHELVE.
+        add("dcl.unshelve.ok",      "%%UNSHELVE-S-RESTORED, alarm %@ returned to annunciator",
+                                    "%%UNSHELVE-S-RESTORED, alarme %@ rétablie sur l'annonciateur")
+        // SET STANDARD (ASME / EN 81 terminology toggle)
+        add("dcl.set.standard.usage","%SET-W-STD, usage: SET STANDARD ASME | EN81 | AUTO",
+                                    "%SET-W-STD, usage : SET STANDARD ASME | EN81 | AUTO")
+        // .bad and .ok are consumed via String(format:) -- escape the leading
+        // % as %%SET (the .usage variant above is output directly); otherwise
+        // the %S in "%SET" is read as a printf conversion and String(format:) traps.
+        add("dcl.set.standard.bad", "%%SET-W-STD, unknown standard \\%@\\ -- use ASME, EN81 or AUTO",
+                                    "%%SET-W-STD, norme inconnue \\%@\\ -- utiliser ASME, EN81 ou AUTO")
+        add("dcl.set.standard.ok",  "%%SET-I-STD, safety terminology set to %@ (%@)",
+                                    "%%SET-I-STD, terminologie de sécurité réglée sur %@ (%@)")
+        add("dcl.set.standard.followlang","following language",              "suit la langue")
+        add("dcl.set.standard.override",  "operator override",               "forcé par l'opérateur")
+        add("dcl.status.standard",  "  Safety standard: %@ (%@)",            "  Norme de sécurité : %@ (%@)")
+        add("dcl.page.more",        "  -- More -- (%d/%d lines, RETURN = next page, Q = quit) ",
+                                    "  -- Suite -- (%d/%d lignes, RETURN = page suivante, Q = quitter) ")
+        // Safety-chain contact names -- standard-variant (SHOW MODBUS / labels)
+        add("safety.contact.doorinterlock.asme", "Door interlock",          "Verrouillage de porte")
+        add("safety.contact.doorinterlock.en81", "Door interlock (EN 81-20 §5.3)", "Verrouillage de porte (EN 81-20 §5.3)")
+        add("safety.contact.finallimit.asme",    "Terminal (final) limit",  "Fin de course extrême")
+        add("safety.contact.finallimit.en81",    "Final limit switch",      "Fin de course extrême (EN 81-20 §5.3.9)")
+        add("safety.contact.governor.asme",       "Overspeed governor",     "Limiteur de vitesse")
+        add("safety.contact.governor.en81",       "Overspeed governor (limiteur)", "Limiteur de vitesse (EN 81-20 §5.6.2)")
+        add("safety.contact.gear.asme",           "Car safety (safeties)",  "Parachute")
+        add("safety.contact.gear.en81",           "Safety gear (parachute)","Parachute (EN 81-20 §5.6.2)")
+        add("safety.contact.brake.asme",          "Brake proven",           "Frein confirmé")
+        add("safety.contact.brake.en81",          "Brake proven",           "Frein confirmé")
+        add("safety.contact.chain.asme",          "Safety string intact",   "Chaîne de sécurité intègre")
+        add("safety.contact.chain.en81",          "Safety chain intact",    "Chaîne de sécurité intègre")
+        // Fire-recall label -- standard-variant (SHOW STATUS building-mode line)
+        add("safety.fire.asme",     "Phase I Fire Service Recall",          "Rappel pompiers Phase I")
+        add("safety.fire.en81",     "Firefighters' recall (EN 81-73)",      "Rappel pompiers (EN 81-73)")
         add("dcl.ack.nosystem",     "%ACK-W-NOSYSTEM, elevator world is not attached",
                                     "%ACK-W-NOSYSTEM, monde ascenseur non attaché")
         add("dcl.ack.missalarm",    "%ACK-W-MISSALARM, specify ACKNOWLEDGE ALARM <id> or ACKNOWLEDGE ALARM ALL",

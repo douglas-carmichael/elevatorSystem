@@ -493,6 +493,11 @@ extension HelpLibrary {
 
     Session        SET RECALL SPAWN ATTACH LOGOUT EXIT
 
+  Any command can be given the /PAGE qualifier to display long output one
+  screenful at a time -- for example  SHOW SYSTEM/PAGE  or  HELP LPDCP/PAGE.
+  Press RETURN for the next page, or Q to stop. The page length follows
+  SET TERMINAL/PAGE.
+
 1 IF
   Tests a condition and, when it is true, executes the command following
   THEN. An optional ELSE clause supplies a command for the false case.
@@ -1012,6 +1017,28 @@ extension HelpLibrary {
 
     SET {VERIFY | NOVERIFY}
 
+2 STANDARD
+  Chooses which lift-safety standard's terminology the interface presents:
+  ASME A17.1 (North American) or EN 81 (European). AUTO, the default,
+  follows the interface language -- French shows EN 81, English shows ASME.
+  Affects SHOW MODBUS contact names, the safety-chain labels and the
+  fire-recall line in SHOW STATUS.
+
+    SET STANDARD {ASME | EN81 | AUTO}
+
+1 SHELVE
+  Shelves an active SCADA alarm (ISA-18.2 SHLVD): the alarm is removed from
+  the primary annunciator -- the beacon, the panel list and the active
+  count -- while remaining in the log so the action stays auditable. Use it
+  to silence a known nuisance alarm without losing the record. UNSHELVE
+  restores it. Distinct from ACKNOWLEDGE, which keeps the alarm annunciated.
+
+  Format:
+
+    SHELVE ALARM alarm-id
+
+  The alarm sequence number is the one listed by SHOW ALARMS.
+
 1 SHOW
   Displays information about the process, the system, devices, and the
   session environment. The elevator subjects (CAB, BUILDING, DISPATCH,
@@ -1051,6 +1078,15 @@ extension HelpLibrary {
   Displays the availability and use of physical memory and paging.
 
     SHOW MEMORY
+
+2 MODBUS
+  Displays the Modbus TCP register map (coils, discrete inputs including
+  the safety chain, holding registers, input registers) so external tools
+  such as mbpoll, pymodbus, OpenPLC and Node-RED can be wired to the right
+  addresses. Safety-chain contact names follow the active safety standard
+  (see SET STANDARD).
+
+    SHOW MODBUS
 
 2 TIME
   Displays the current date and time.
@@ -1308,6 +1344,15 @@ extension HelpLibrary {
   Format:
 
     TYPE file-spec[,...]
+
+1 UNSHELVE
+  Restores a shelved SCADA alarm (see HELP SHELVE) to the primary
+  annunciator. If the underlying condition is still present the alarm
+  re-annunciates immediately.
+
+  Format:
+
+    UNSHELVE ALARM alarm-id
 
 1 WAIT
   Suspends the procedure or the interactive session for the specified

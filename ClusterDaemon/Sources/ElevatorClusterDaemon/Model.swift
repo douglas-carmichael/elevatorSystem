@@ -119,6 +119,8 @@ struct Elevator: Identifiable, Codable, Hashable {
     var independentActive: Bool = false
     /// Current cab velocity in floors / second; positive is up.
     var velocity: Double = 0
+    /// Current cab acceleration in floors / second² (per-tick velocity delta).
+    var acceleration: Double = 0
     /// Holding-brake state; defaults engaged so a fresh cab is safe.
     var brakeEngaged: Bool = true
     /// Door light-curtain / safety-edge obstruction flag.
@@ -129,7 +131,7 @@ struct Elevator: Identifiable, Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, label, ownerPeerId, automatic, profile, position, queue
         case doors, doorProgress, doorDwellRemaining, direction
-        case phaseTwoActive, independentActive, velocity
+        case phaseTwoActive, independentActive, velocity, acceleration
         case brakeEngaged, doorObstructed, loadKg
     }
 
@@ -138,7 +140,7 @@ struct Elevator: Identifiable, Codable, Hashable {
          doors: DoorState, doorProgress: Double, doorDwellRemaining: Double,
          direction: Direction,
          phaseTwoActive: Bool = false, independentActive: Bool = false,
-         velocity: Double = 0,
+         velocity: Double = 0, acceleration: Double = 0,
          brakeEngaged: Bool = true, doorObstructed: Bool = false,
          loadKg: Double = 0) {
         self.id = id
@@ -155,6 +157,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         self.phaseTwoActive = phaseTwoActive
         self.independentActive = independentActive
         self.velocity = velocity
+        self.acceleration = acceleration
         self.brakeEngaged = brakeEngaged
         self.doorObstructed = doorObstructed
         self.loadKg = loadKg
@@ -178,6 +181,7 @@ struct Elevator: Identifiable, Codable, Hashable {
         phaseTwoActive = try c.decodeIfPresent(Bool.self, forKey: .phaseTwoActive) ?? false
         independentActive = try c.decodeIfPresent(Bool.self, forKey: .independentActive) ?? false
         velocity = try c.decodeIfPresent(Double.self, forKey: .velocity) ?? 0
+        acceleration = try c.decodeIfPresent(Double.self, forKey: .acceleration) ?? 0
         brakeEngaged = try c.decodeIfPresent(Bool.self, forKey: .brakeEngaged) ?? true
         doorObstructed = try c.decodeIfPresent(Bool.self, forKey: .doorObstructed) ?? false
         loadKg = try c.decodeIfPresent(Double.self, forKey: .loadKg) ?? 0

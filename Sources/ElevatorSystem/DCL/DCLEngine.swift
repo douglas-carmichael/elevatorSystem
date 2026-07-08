@@ -219,6 +219,14 @@ final class DCLEngine: ObservableObject {
     var helpActive: Bool = false
     var helpPath: [String] = []
     var helpPreviousPrompt: String = "$ "
+
+    // /PAGE pager state. When a command line carries /PAGE and its output is
+    // taller than the terminal page length, the body is buffered here and
+    // shown one screenful at a time: RETURN advances, Q / CTRL/Z quits.
+    // submit() routes lines here while `pagerActive` (mirrors helpActive).
+    var pagerActive: Bool = false
+    private var pagerLines: [String] = []
+    private var pagerIndex: Int = 0
     /// The help library, parsed from the `.HLP` source on first use.
     var helpRootCache: HelpNode? = nil
 
@@ -443,6 +451,17 @@ final class DCLEngine: ObservableObject {
         return lang.t(key)
     }
 
+    /// Safety-terminology lookup honouring both the UI language and the
+    /// selected safety standard (ASME vs EN 81). Falls back to ASME /
+    /// English when no language is attached (headless SELFTEST).
+    func sterm(_ base: String) -> String {
+        guard let language else { return Strings.lookup("\(base).asme", lang: .en) }
+        return language.safetyTerm(base)
+    }
+
+    /// Safety standard currently in effect (ASME when headless).
+    var safetyStandard: SafetyStandard { language?.standard ?? .asme }
+
     /// Single entry point for input from the terminal line discipline.
     /// The terminal has already echoed the keystrokes and emitted a CRLF;
     /// we just execute the line and emit the next prompt. Async because
@@ -484,6 +503,21 @@ final class DCLEngine: ObservableObject {
             return
         }
 
+        // /PAGE pager: while paginating, each RETURN shows the next
+        // screenful and Q / CTRL/Z quits early. Consumes the line without
+        // running it as a command (mirrors the helpActive reroute).
+        if pagerActive {
+            let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            transcript += "\(raw)\n"
+            if key == "Q" || key == "QUIT" || key.contains("\u{1A}") {
+                endPager()
+                if !loggedOut { out(prompt) }
+            } else {
+                showNextPage()
+            }
+            return
+        }
+
         // Interactive HELP browser routes every line to runHelpLine until
         // RETURN at the top level (or CTRL/Z) leaves it.
         if helpActive {
@@ -507,7 +541,17 @@ final class DCLEngine: ObservableObject {
             history.append(line)
             if history.count > maxHistory { history.removeFirst() }
         }
+        let pageRequested = parse(line).hasQualifier("PAGE", min: 3)
         let body = await execute(line)
+        // Paginate when /PAGE was given and the result is taller than one
+        // screenful -- unless a command took over the screen (MONITOR, EDT,
+        // an interactive HELP/MAIL browser) or the session is logging out.
+        if pageRequested, !body.isEmpty, !liveActive, !loggedOut,
+           !helpActive, !mailActive, !editorActive,
+           bodyLineCount(body) > terminalPage {
+            startPager(body)
+            return
+        }
         if !body.isEmpty {
             out(body)
             if !body.hasSuffix("\n") { out("\n") }
@@ -515,6 +559,48 @@ final class DCLEngine: ObservableObject {
         if !loggedOut && !liveActive {
             out(prompt)
         }
+    }
+
+    // MARK: -- /PAGE pager
+
+    private func bodyLineCount(_ body: String) -> Int {
+        var text = body
+        if text.hasSuffix("\n") { text.removeLast() }
+        return text.components(separatedBy: "\n").count
+    }
+
+    /// Buffer `body` and show the first screenful. Subsequent RETURNs are
+    /// routed through the `pagerActive` branch in submit().
+    private func startPager(_ body: String) {
+        var text = body
+        if text.hasSuffix("\n") { text.removeLast() }
+        pagerLines = text.components(separatedBy: "\n")
+        pagerIndex = 0
+        pagerActive = true
+        showNextPage()
+    }
+
+    /// Emit the next page of buffered output. Leaves one row for the
+    /// continuation prompt. When the buffer is exhausted the pager ends and
+    /// the normal prompt returns.
+    private func showNextPage() {
+        let pageSize = max(4, terminalPage - 1)
+        let end = min(pagerIndex + pageSize, pagerLines.count)
+        out(pagerLines[pagerIndex..<end].joined(separator: "\n") + "\n")
+        pagerIndex = end
+        if pagerIndex >= pagerLines.count {
+            endPager()
+            if !loggedOut { out(prompt) }
+        } else {
+            let shown = min(pagerIndex, pagerLines.count)
+            out(String(format: tr("dcl.page.more"), shown, pagerLines.count))
+        }
+    }
+
+    private func endPager() {
+        pagerActive = false
+        pagerLines = []
+        pagerIndex = 0
     }
 
     // MARK: -- output framing
@@ -726,6 +812,8 @@ final class DCLEngine: ObservableObject {
         case matches(head, "REPLY"):                          return replyCmd(cmd)
         case matches(head, "REQUEST", min: 4):                return requestCmd(cmd)
         case matches(head, "ACKNOWLEDGE", min: 3):            return acknowledgeCmd(cmd)
+        case matches(head, "SHELVE", min: 3):                 return shelveCmd(cmd, unshelve: false)
+        case matches(head, "UNSHELVE", min: 3):               return shelveCmd(cmd, unshelve: true)
 
         // Genuinely privileged verbs.
         case matches(head, "INITIALIZE", min: 4):             return noPriv("INITIALIZE")
